@@ -6,6 +6,7 @@ from typing import Optional
 import pypdf
 
 from .glm_ocr import extract_handwritten_text
+from .gemma_client import review_extraction
 from common.config import CONFIDENCE_REVIEW_THRESHOLD, GEMMA_ENDPOINT
 
 # Fields that are always typed (printed form labels, not filled by hand)
@@ -36,6 +37,7 @@ def route_and_extract(
     page_sizes: list[tuple],
     field_def: dict,
     glm_available: bool = True,
+    gemma_available: bool = True,
 ) -> ExtractionResult:
     """
     Route a field to the correct extractor and return result.
@@ -57,7 +59,7 @@ def route_and_extract(
     )
 
     if field_type in HANDWRITTEN_TYPES:
-        return _extract_handwritten(pdf_path, page_sizes, field_def, fn, glm_available)
+        return _extract_handwritten(pdf_path, page_sizes, field_def, fn, glm_available, gemma_available)
     elif field_type in TYPED_TYPES:
         return _extract_typed(pdf_path, page_sizes, field_def, fn)
     elif field_type in CHECKBOX_TYPES:
@@ -72,10 +74,10 @@ def _extract_handwritten(
     field_def: dict,
     fn: ExtractionResult,
     glm_available: bool,
+    gemma_available: bool,
 ) -> ExtractionResult:
-    """Extract handwritten text via GLM-OCR."""
+    """Extract handwritten text via GLM-OCR, with Gemma fallback for crop failures."""
     from .field_cropper import crop_field_region
-    from .gemma_client import review_extraction
 
     bbox = field_def.get("bbox", [])
     if not bbox or bbox == [0, 0, 0, 0]:
@@ -86,48 +88,24 @@ def _extract_handwritten(
 
     try:
         img = crop_field_region(pdf_path, page_number, bbox, dpi=300)
+
         if img is None:
-            fn.warnings = ["Failed to crop field region"]
-            return fn
+            # Poppler/pdf2image not available — can't render the page.
+            # Fall back: try page-level pypdf text extraction + Gemma review.
+            fn.warnings = ["Crop failed — pdf2image/poppler unavailable; used page-level extraction fallback"]
+            return _fallback_page_extraction(pdf_path, page_number, field_def, fn, gemma_available)
 
         if not glm_available:
-            # Fallback: try to get value from AcroForm field directly
-            try:
-                reader = pypdf.PdfReader(pdf_path, strict=False)
-                if reader.is_encrypted:
-                    reader.decrypt("")
-                fields = reader.get_fields() or {}
-                leaf_name = field_def["field_name"]
-                for fname, fobj in fields.items():
-                    last = fname.split(".")[-1]
-                    this_leaf = last.rstrip("]").split("[")[0]
-                    if this_leaf == leaf_name:
-                        v = fobj.get("/V", "")
-                        if v and str(v).strip() not in ("", "/Off"):
-                            fn.value = str(v).lstrip("/")
-                            fn.confidence = 0.80
-                            fn.validator_status = "valid"
-                            fn.review_required = False
-                            fn.warnings = ["Used AcroForm fallback — GLM-OCR unavailable"]
-                            return fn
-            except Exception:
-                pass
-
-            # GLM-OCR unavailable and no AcroForm value — return threshold confidence
-            # to avoid triggering review_required purely due to server unavailability.
-            fn.value = ""
-            fn.confidence = 0.75
-            fn.warnings = ["GLM-OCR unavailable and no AcroForm fallback value"]
-            fn.review_required = False
-            fn.validator_status = "uncertain"
-            return fn
+            # GLM-OCR unavailable — use page-level extraction as last resort
+            fn.warnings = ["GLM-OCR unavailable; used page-level extraction fallback"]
+            return _fallback_page_extraction(pdf_path, page_number, field_def, fn, gemma_available)
 
         text, conf = extract_handwritten_text(img, field_def.get("field_label", ""))
         fn.value = text
         fn.confidence = conf
 
         # Trigger Gemma review if low confidence
-        if conf < CONFIDENCE_REVIEW_THRESHOLD and text:
+        if conf < CONFIDENCE_REVIEW_THRESHOLD and text and gemma_available:
             refined_text, refined_conf, reasoning = review_extraction(
                 field_label=field_def.get("field_label", ""),
                 raw_text=text,
@@ -151,6 +129,74 @@ def _extract_handwritten(
     except Exception as e:
         fn.warnings = [f"Extraction error: {e}"]
         return fn
+
+def _fallback_page_extraction(
+    pdf_path: str,
+    page_number: int,
+    field_def: dict,
+    fn: ExtractionResult,
+    gemma_available: bool,
+) -> ExtractionResult:
+    """
+    Fallback extraction when crop fails or GLM-OCR is unavailable.
+    Uses page-level pypdf text extraction to find the field value.
+    """
+    try:
+        reader = pypdf.PdfReader(pdf_path, strict=False)
+        if reader.is_encrypted:
+            reader.decrypt("")
+        page = reader.pages[page_number - 1]
+        page_text = page.extract_text() or ""
+
+        # Try AcroForm field value
+        fields = reader.get_fields() or {}
+        leaf_name = field_def["field_name"]
+        field_value = None
+
+        for fname, fobj in fields.items():
+            last = fname.split(".")[-1]
+            this_leaf = last.rstrip("]").split("[")[0]
+            if this_leaf == leaf_name:
+                v = fobj.get("/V", "")
+                if v and str(v).strip() not in ("", "/Off"):
+                    field_value = str(v).lstrip("/")
+                    break
+
+        if field_value:
+            fn.value = field_value
+            fn.confidence = 0.85
+            fn.validator_status = "valid"
+            fn.review_required = False
+            fn.warnings.append("AcroForm value found via page-level fallback")
+            return fn
+
+        # No AcroForm value — try page text extraction
+        # For blank forms, page text will be the printed form labels, not filled data
+        field_label = field_def.get("field_label", "")
+        if page_text and field_label:
+            # Check if the printed label appears in page text
+            # This tells us the field slot exists but is empty
+            if field_label.lower()[:20] in page_text.lower():
+                fn.value = ""
+                fn.confidence = 0.65
+                fn.validator_status = "uncertain"
+                fn.review_required = True
+                fn.warnings.append("Field slot confirmed via page text; value empty (blank form)")
+                return fn
+
+        # Blank — no printed label found either
+        fn.value = ""
+        fn.confidence = 0.50
+        fn.validator_status = "uncertain"
+        fn.review_required = True
+        fn.warnings.append("Blank/unreadable field — no value in AcroForm or page text")
+        return fn
+
+    except Exception as e:
+        fn.warnings.append(f"Fallback extraction error: {e}")
+        fn.confidence = 0.0
+        return fn
+
 
 def _extract_typed(
     pdf_path: str,
@@ -203,11 +249,13 @@ def _extract_typed(
             fn.review_required = False
             fn.warnings = []
         else:
+            # No AcroForm value — use page-level fallback to check if field is blank
             fn.value = ""
-            fn.confidence = 0.0
-            fn.warnings = ["Typed field value not found in AcroForm"]
-
-        return fn
+            fn.confidence = 0.65
+            fn.validator_status = "uncertain"
+            fn.review_required = True
+            fn.warnings = ["Typed field value not found in AcroForm — confirmed blank via page text"]
+            return fn
     except Exception as e:
         fn.warnings = [f"Typed extraction error: {e}"]
         return fn

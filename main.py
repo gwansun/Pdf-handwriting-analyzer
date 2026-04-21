@@ -149,6 +149,7 @@ def analyze(request: dict) -> dict:
             page_sizes=inspection.page_sizes,
             field_def=field_def,
             glm_available=glm_available,
+            gemma_available=gemma_available,
         )
 
         fr = FieldResult(
