@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project-specific
+logs/
+.cache/
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ML model caches
+*.bin
+*.mlxcache/
+
+# temp files
+*.tmp
+*.temp

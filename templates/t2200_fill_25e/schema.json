@@ -1,0 +1,178 @@
+{
+  "template_id": "t2200_fill_25e",
+  "template_version": "2025-en-v1",
+  "description": "T2200 Declaration of Conditions of Employment — CRA Form",
+  "fields": [
+    {
+      "field_name": "BriefDescription",
+      "field_label": "Brief Description of Duties",
+      "field_type": "typed",
+      "page_number": 1,
+      "bbox": [27.001, 528.718, 585.002, 539.28],
+      "input_mode": "typed",
+      "validation_hints": ["max_length: 500"]
+    },
+    {
+      "field_name": "First_Name_Fill",
+      "field_label": "Employee First Name",
+      "field_type": "handwritten_name",
+      "page_number": 1,
+      "bbox": [291, 576.717, 507.001, 587.279],
+      "input_mode": "handwritten",
+      "validation_hints": ["name", "max_length: 100"]
+    },
+    {
+      "field_name": "Last_Name_Fill",
+      "field_label": "Employee Last Name",
+      "field_type": "handwritten_name",
+      "page_number": 1,
+      "bbox": [27.001, 576.717, 285, 587.279],
+      "input_mode": "handwritten",
+      "validation_hints": ["name", "max_length: 100"]
+    },
+    {
+      "field_name": "Tax_Year_Fill",
+      "field_label": "Tax Year",
+      "field_type": "handwritten_text",
+      "page_number": 1,
+      "bbox": [513.001, 576.717, 585.002, 587.279],
+      "input_mode": "handwritten",
+      "validation_hints": ["year_format"]
+    },
+    {
+      "field_name": "Job_Title_Fill",
+      "field_label": "Job Title",
+      "field_type": "handwritten_text",
+      "page_number": 1,
+      "bbox": [27.001, 552.716, 585.002, 563.278],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 200"]
+    },
+    {
+      "field_name": "Address_Fill",
+      "field_label": "Employee Home Address",
+      "field_type": "handwritten_address",
+      "page_number": 1,
+      "bbox": [27.001, 456.721, 585.002, 467.283],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 300"]
+    },
+    {
+      "field_name": "Name_Employer_Fill",
+      "field_label": "Name of Employer",
+      "field_type": "handwritten_text",
+      "page_number": 1,
+      "bbox": [27.001, 480.719, 585.002, 491.281],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 200"]
+    },
+    {
+      "field_name": "FromDate",
+      "field_label": "Employment Start Date",
+      "field_type": "handwritten_date",
+      "page_number": 1,
+      "bbox": [219.002, 321.718, 339.001, 333],
+      "input_mode": "handwritten",
+      "validation_hints": ["date_format: YYYY-MM-DD"]
+    },
+    {
+      "field_name": "ToDate",
+      "field_label": "Employment End Date",
+      "field_type": "handwritten_date",
+      "page_number": 1,
+      "bbox": [369.003, 321.718, 489.002, 333],
+      "input_mode": "handwritten",
+      "validation_hints": ["date_format: YYYY-MM-DD"]
+    },
+    {
+      "field_name": "Text_4_Fill",
+      "field_label": "Employment Type / Notes",
+      "field_type": "handwritten_text",
+      "page_number": 1,
+      "bbox": [192.002, 294.721, 489.002, 306],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 300"]
+    },
+    {
+      "field_name": "Goods_Sold_Fill",
+      "field_label": "Goods Sold Description",
+      "field_type": "handwritten_text",
+      "page_number": 1,
+      "bbox": [249.001, 210.722, 489.002, 222.001],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 500"]
+    },
+    {
+      "field_name": "Expense_Fill",
+      "field_label": "Expense Amount",
+      "field_type": "handwritten_currency",
+      "page_number": 2,
+      "bbox": [144.003, 501.721, 468.003, 513],
+      "input_mode": "handwritten",
+      "validation_hints": ["currency_format"]
+    },
+    {
+      "field_name": "Telephone_Fill",
+      "field_label": "Phone Number",
+      "field_type": "handwritten_phone",
+      "page_number": 3,
+      "bbox": [144, 189.72, 234, 200.999],
+      "input_mode": "handwritten",
+      "validation_hints": ["phone_format"]
+    },
+    {
+      "field_name": "Ext_Fill",
+      "field_label": "Phone Extension",
+      "field_type": "handwritten_text",
+      "page_number": 3,
+      "bbox": [258.001, 189.72, 291.002, 200.999],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 10"]
+    },
+    {
+      "field_name": "Name_Authorized_Fill",
+      "field_label": "Authorized Representative Name",
+      "field_type": "handwritten_name",
+      "page_number": 3,
+      "bbox": [30.002, 222.715, 291.002, 233.997],
+      "input_mode": "handwritten",
+      "validation_hints": ["name", "max_length: 200"]
+    },
+    {
+      "field_name": "Title_Fill",
+      "field_label": "Authorized Representative Title",
+      "field_type": "handwritten_text",
+      "page_number": 3,
+      "bbox": [321.001, 222.715, 582.001, 233.997],
+      "input_mode": "handwritten",
+      "validation_hints": ["max_length: 100"]
+    },
+    {
+      "field_name": "Name_Employee_Fill",
+      "field_label": "Employee Name (Declaration)",
+      "field_type": "handwritten_name",
+      "page_number": 3,
+      "bbox": [30.002, 93.716, 291.002, 104.998],
+      "input_mode": "handwritten",
+      "validation_hints": ["name", "max_length: 200"]
+    },
+    {
+      "field_name": "SIN_BordersAll_EN",
+      "field_label": "Social Insurance Number",
+      "field_type": "handwritten_sin",
+      "page_number": 3,
+      "bbox": [315, 93.716, 459, 104.998],
+      "input_mode": "handwritten",
+      "validation_hints": ["sin_format"]
+    },
+    {
+      "field_name": "Date",
+      "field_label": "Declaration Date",
+      "field_type": "handwritten_date",
+      "page_number": 3,
+      "bbox": [483.001, 93.716, 582.001, 104.998],
+      "input_mode": "handwritten",
+      "validation_hints": ["date_format"]
+    }
+  ]
+}

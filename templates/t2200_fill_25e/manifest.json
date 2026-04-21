@@ -1,0 +1,74 @@
+{
+  "template_id": "t2200_fill_25e",
+  "template_family": "t2200",
+  "template_version": "2025-en-v1",
+  "display_name": "T2200 Declaration of Conditions of Employment",
+  "status": "active",
+  "fingerprints": {
+    "metadata": {
+      "title": "Declaration of Conditions of Employment",
+      "creator": "Designer 6.3",
+      "producer": "Designer 6.3"
+    },
+    "acroform": {
+      "field_count": 181,
+      "field_names": [
+        "Last_Name_Fill",
+        "First_Name_Fill",
+        "Tax_Year_Fill",
+        "Job_Title_Fill",
+        "Address_Fill",
+        "Name_Employer_Fill",
+        "FromDate",
+        "ToDate",
+        "Text_4_Fill",
+        "Goods_Sold_Fill",
+        "Expense_Fill",
+        "Amount2",
+        "Amount3",
+        "Text_2_Fill",
+        "Telephone_Fill",
+        "Ext_Fill",
+        "Name_Authorized_Fill",
+        "Title_Fill",
+        "Name_Employee_Fill",
+        "SIN_BordersAll_EN"
+      ]
+    },
+    "page_signature": {
+      "page_count": 3,
+      "page_sizes": [[612.0, 792.0], [612.0, 792.0], [612.0, 792.0]],
+      "orientations": ["portrait", "portrait", "portrait"]
+    },
+    "anchor_text": {
+      "phrases": [
+        "Declaration of Conditions of Employment",
+        "Part A",
+        "Part B",
+        "Part C",
+        "Part D",
+        "Part E",
+        "First name",
+        "Last name",
+        "Tax year",
+        "Job title",
+        "Employer",
+        "Address"
+      ]
+    },
+    "visual_anchor": {}
+  },
+  "schema_ref": {
+    "schema_path": "schema.json",
+    "blank_pdf_path": "t2200-fill-25e.pdf"
+  },
+  "runtime_hints": {
+    "default_input_mode": "mixed",
+    "primary_language": "en",
+    "alignment_mode": "strict",
+    "unknown_field_policy": "review",
+    "preferred_extractors": ["native_text_first", "handwriting_ocr", "checkbox_detector"]
+  },
+  "created_at": "2026-04-21T00:00:00Z",
+  "updated_at": "2026-04-21T00:00:00Z"
+}
