@@ -31,14 +31,17 @@ def review_extraction(
     )
     
     payload = {
-        "prompt": prompt,
-        "max_tokens": 128,
+        "model": "mlx-community/gemma-4-e4b-it-4bit",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 500,
         "temperature": 0.1,
     }
-    
+
     try:
         with httpx.Client(timeout=MODEL_TIMEOUT_SECONDS) as client:
-            resp = client.post(f"{GEMMA_ENDPOINT}/v1/chat", json=payload)
+            resp = client.post(f"{GEMMA_ENDPOINT}/v1/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")

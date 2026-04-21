@@ -21,38 +21,49 @@ def extract_handwritten_text(image: Image.Image, field_label: str = "") -> tuple
     """
     img_b64 = encode_image_pil(image)
     
-    prompt = (
-        "You are an expert at reading handwritten text on forms. "
-        "Read ALL handwritten text visible in this image carefully. "
-        "Return ONLY the text you can read, with minimal formatting. "
-        "If the field appears empty or unreadable, return an empty string.\n"
-    )
+    # Build prompt with field context inline
+    user_content = []
+    instruction = "OCR this handwritten text. Output ONLY the text, nothing else. If blank, output: (blank)."
     if field_label:
-        prompt += f"Field context: {field_label}\n"
-    prompt += "Read the text now:"
-    
+        instruction += f"  Form field: {field_label}"
+    user_content.append({"type": "text", "text": instruction})
+    user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}})
+
     payload = {
-        "prompt": prompt,
-        "image": f"data:image/png;base64,{img_b64}",
+        "model": "mlx-community/GLM-OCR-bf16",
+        "messages": [
+            {
+                "role": "user",
+                "content": user_content,
+            }
+        ],
         "max_tokens": 256,
         "temperature": 0.1,
     }
-    
+
     try:
         with httpx.Client(timeout=MODEL_TIMEOUT_SECONDS) as client:
-            resp = client.post(f"{GLM_OCR_ENDPOINT}/v1/chat", json=payload)
+            resp = client.post(f"{GLM_OCR_ENDPOINT}/v1/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            
-            # Parse response - GLM-OCR returns text content
+
+            # Parse response - strip any echoed instruction text
             text = content.strip()
-            
-            # Simple confidence heuristic
+
+            # Confidence heuristic based on response quality
             if not text:
                 return "", 0.0
-            if "unreadable" in text.lower() or "empty" in text.lower():
-                return "", 0.3
-            return text, 0.75
+
+            # Detect unambiguous empty/blank responses
+            lower = text.lower()
+            if any(phrase in lower for phrase in [
+                "no text", "no handwritten", "nothing", "blank",
+                "empty", "unreadable", "cannot read", "illegible",
+            ]):
+                return "", 0.2
+
+            # Substantial response for a field that has content → moderate-high
+            return text, 0.80
     except Exception as e:
         return "", 0.0

@@ -32,6 +32,7 @@ class ExtractionResult:
     warnings: list
     bbox: list
 
+
 def route_and_extract(
     pdf_path: str,
     page_sizes: list[tuple],
@@ -67,6 +68,31 @@ def route_and_extract(
     else:
         fn.warnings = [f"Unknown field type: {field_type}"]
         return fn
+
+
+def _get_acroform_value(
+    pdf_path: str,
+    page_number: int,
+    field_def: dict,
+) -> Optional[str]:
+    """Extract a field value from AcroForm data."""
+    try:
+        reader = pypdf.PdfReader(pdf_path, strict=False)
+        if reader.is_encrypted:
+            reader.decrypt("")
+        fields = reader.get_fields() or {}
+        leaf_name = field_def.get("field_name", "")
+        for fname, fobj in fields.items():
+            last = fname.split(".")[-1]
+            this_leaf = last.rstrip("]").split("[")[0]
+            if this_leaf == leaf_name:
+                v = fobj.get("/V", "")
+                if v and str(v).strip() not in ("", "/Off"):
+                    return str(v).lstrip("/")
+        return None
+    except Exception:
+        return None
+
 
 def _extract_handwritten(
     pdf_path: str,
@@ -104,6 +130,17 @@ def _extract_handwritten(
         fn.value = text
         fn.confidence = conf
 
+        # If GLM returned blank but we have an AcroForm value, use it
+        if not text and conf <= 0.3:
+            acroform_value = _get_acroform_value(pdf_path, page_number, field_def)
+            if acroform_value:
+                fn.value = acroform_value
+                fn.confidence = 0.85
+                fn.validator_status = "valid"
+                fn.review_required = False
+                fn.warnings = ["Born-digital form field — used AcroForm value"]
+                return fn
+
         # Trigger Gemma review if low confidence
         if conf < CONFIDENCE_REVIEW_THRESHOLD and text and gemma_available:
             refined_text, refined_conf, reasoning = review_extraction(
@@ -129,6 +166,7 @@ def _extract_handwritten(
     except Exception as e:
         fn.warnings = [f"Extraction error: {e}"]
         return fn
+
 
 def _fallback_page_extraction(
     pdf_path: str,
@@ -212,8 +250,6 @@ def _extract_typed(
 
         page_number = field_def.get("page_number", 1)
         page = reader.pages[page_number - 1]
-
-        # Extract text from the page
         page_text = page.extract_text() or ""
 
         # For typed fields, the value might be in the AcroForm /V
@@ -248,6 +284,7 @@ def _extract_typed(
             fn.validator_status = "valid"
             fn.review_required = False
             fn.warnings = []
+            return fn
         else:
             # No AcroForm value — use page-level fallback to check if field is blank
             fn.value = ""
@@ -259,6 +296,7 @@ def _extract_typed(
     except Exception as e:
         fn.warnings = [f"Typed extraction error: {e}"]
         return fn
+
 
 def _extract_checkbox(
     pdf_path: str,
