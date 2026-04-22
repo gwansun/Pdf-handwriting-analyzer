@@ -1,4 +1,3 @@
-# MARKER_V5_CHECK
 """
 Field router: routes each schema field to the appropriate extractor.
 """
@@ -393,8 +392,7 @@ def _extract_checkbox(
             opt = fobj.get("/Opt", [])
 
             # ---- Checkbox-style: /Yes or /Off ----
-            v_str = str(v) if hasattr(v, "startswith") else v
-            if v_str == "/Yes" or (isinstance(v, str) and "Yes" in v):
+            if v == "/Yes" or (isinstance(v, str) and "Yes" in v):
                 val = "checked"
                 if not multiple_instances:
                     fn.value = val
@@ -407,7 +405,7 @@ def _extract_checkbox(
                 if not multiple_instances:
                     break
 
-            if v_str == "/Off":
+            if v == "/Off":
                 val = "unchecked"
                 if not multiple_instances:
                     fn.value = val
@@ -421,19 +419,19 @@ def _extract_checkbox(
                     break
 
             # ---- Radio-button-style: /0, /1, /2 … indexing into /Opt ----
-            if v_str.startswith("/"):
-                idx_str = v_str.lstrip("/")
+            if isinstance(v, str) and v.startswith("/"):
+                idx_str = v.lstrip("/")
                 try:
                     idx = int(idx_str)
                 except ValueError:
                     idx = -1
 
                 if options:
-                    label = options[idx]["label"] if idx < len(options) else v_str
+                    label = options[idx]["label"] if idx < len(options) else v
                 elif opt and idx < len(opt):
                     label = opt[idx]
                 else:
-                    label = v_str
+                    label = v
 
                 if not multiple_instances:
                     fn.value = label

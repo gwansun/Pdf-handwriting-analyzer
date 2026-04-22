@@ -100,6 +100,68 @@ def build_unknown_template_response(
     )
 
 
+def build_unknown_filled_review_response(
+    request_id: str,
+    job_id: str,
+    page_count: int,
+    overall_confidence: float,
+    field_count: int,
+    warnings: Optional[list[dict]] = None,
+    error: Optional[ErrorDetail] = None,
+) -> AnalyzerResponse:
+    """
+    Build a 'review_required' response for an unknown filled PDF that has no
+    matching registered template.
+
+    Always returns review_required with conservative confidence and explicit
+    UNKNOWN_TEMPLATE warning. Does NOT fail-fast — this is a best-effort
+    provisional extraction path.
+
+    Parameters
+    ----------
+    request_id : str
+    job_id : str
+    page_count : int
+    overall_confidence : float
+        Conservative overall confidence (should be low, e.g. 0.20–0.35).
+    field_count : int
+        Number of fields extracted (may be 0).
+    warnings : list[dict], optional
+        Additional warning objects. UNKNOWN_TEMPLATE warning is always included.
+    error : ErrorDetail, optional
+        If the fallback extraction itself crashed, include a top-level error.
+    """
+    all_warnings = list(warnings or [])
+    all_warnings.append({
+        "code": "UNKNOWN_TEMPLATE",
+        "message": (
+            "No matching registered template was found. "
+            "Provisional extraction was used — results may be incomplete or inaccurate. "
+            "Manual review is required."
+        ),
+    })
+
+    summary = Summary(
+        template_match_status="unknown",
+        template_id=None,
+        page_count=page_count,
+        overall_confidence=round(overall_confidence, 4),
+        review_required=True,
+        warning_count=len(all_warnings),
+        field_count=field_count,
+    )
+
+    return AnalyzerResponse(
+        request_id=request_id,
+        job_id=job_id,
+        status="review_required",
+        summary=summary,
+        fields=[],
+        warnings=all_warnings,
+        error=error,
+    )
+
+
 def response_to_dict(resp: AnalyzerResponse) -> dict[str, Any]:
     """
     Convert an AnalyzerResponse to a plain dict matching the frozen MVP JSON schema.

@@ -8,6 +8,10 @@ This workflow is the bridge between:
 - a new unseen form,
 - and a known template in the registry.
 
+It also defines what should happen when:
+- a blank PDF exists as a raw file with no template artifacts yet,
+- and when a filled PDF arrives before template registration is complete.
+
 ---
 
 ## 2. Goal
@@ -18,6 +22,11 @@ Given a blank or canonical PDF form, the system should be able to:
 3. build template artifacts,
 4. register it in the template registry,
 5. make it available for future matching and extraction.
+
+Additionally, if a filled PDF arrives before registration exists, the system should:
+- use provisional extraction,
+- return `review_required`,
+- and avoid a hard fail-fast path unless the file is invalid.
 
 ---
 
@@ -72,7 +81,35 @@ Blank PDF input
 
 ---
 
-## 6. Registration Stages
+## 6. Registration Triggers
+
+### Trigger A. Pre-registered template already exists
+If the blank PDF already has a valid template folder with manifest/schema:
+- keep current behavior
+- use the template as-is
+
+### Trigger B. Blank PDF exists only as raw file
+If a valid blank/canonical PDF exists but no template folder/artifacts exist yet:
+- run the registration workflow automatically
+- generate missing template artifacts
+- save them under `templates/<template_id>/`
+- make the generated template available for future matching
+
+### Trigger C. Filled PDF arrives before registration
+If a valid filled PDF arrives before a template has been registered:
+- do not block solely on missing template artifacts
+- use provisional extraction fallback
+- return `review_required`
+- optionally enqueue or flag later template registration from a proper blank/canonical source
+
+### Trigger D. Invalid / non-PDF file
+If the file is not actually a PDF or is unreadable:
+- fail fast
+- do not attempt template registration
+
+---
+
+## 7. Registration Stages
 
 ## Stage 1. Validate input template
 
@@ -220,7 +257,7 @@ Make template discoverable by matcher.
 
 ### Actions
 - add template to top-level registry index if used
-- mark template status as `active`, `draft`, or `deprecated`
+- mark template status as `draft`, `active`, or `deprecated`
 - validate manifest/schema linkage
 
 ### Output
@@ -228,6 +265,9 @@ Template becomes loadable by:
 - template matcher
 - template registry loader
 - runtime extraction path
+
+### Recommendation
+New auto-generated templates should usually start as `draft` until lightly reviewed.
 
 ---
 
@@ -251,7 +291,7 @@ This is much more realistic than requiring perfect auto-generation.
 
 ---
 
-## 7. Automatic vs Manual Work Split
+## 8. Automatic vs Manual Work Split
 
 ## Automatic first-pass
 The system should try to generate:
@@ -260,6 +300,7 @@ The system should try to generate:
 - page geometry
 - anchor candidates
 - initial field list
+- manifest/schema stubs sufficient for registration
 
 ## Manual review/refinement
 A human may need to confirm or adjust:
@@ -268,13 +309,48 @@ A human may need to confirm or adjust:
 - bbox corrections
 - runtime hints
 - template version naming
+- final status change from `draft` to `active`
 
 ### Recommendation
 Registration should be semi-automatic for MVP, not fully automatic.
 
 ---
 
-## 8. T2200 Example Registration Fit
+## 9. Filled-PDF Before Registration Behavior
+
+If a filled PDF arrives before its template has been registered:
+- do not use strict fail-fast solely because no template is registered
+- use provisional extraction fallback
+- return top-level `status = review_required`
+- preserve low-confidence / warning-heavy behavior
+- mark template status as `unknown` or `unmatched`
+
+### Suggested warning
+```json
+{
+  "code": "UNKNOWN_TEMPLATE",
+  "message": "No matching registered template was found. Provisional extraction was used."
+}
+```
+
+### Important distinction
+This is **not** template registration.
+A filled PDF may be useful for provisional extraction, but should not automatically become the canonical template source unless the system can confidently determine it is a clean blank/canonical form.
+
+---
+
+## 10. Invalid File Behavior
+
+If the input file is not actually a PDF or is unreadable:
+- fail fast
+- do not attempt registration
+- do not attempt provisional extraction
+
+This keeps unsupported input handling strict and predictable.
+
+---
+
+## 11. T2200 Example Registration Fit
 
 For the T2200 example:
 - the empty PDF is a strong registration input
@@ -292,56 +368,12 @@ Likely registration outputs for T2200:
 
 ---
 
-## 9. Registration Status Model
+## 12. Recommendation
 
-Suggested statuses:
-- `draft` -> generated but not yet reviewed
-- `active` -> approved for matching/runtime use
-- `deprecated` -> old version, kept for compatibility
+Use this registration-oriented behavior split:
+- prepared blank template artifacts -> keep as is
+- raw blank PDF only -> auto-generate manifest/schema and register
+- filled PDF before registration -> provisional extraction with `review_required`
+- non-PDF / invalid file -> fail fast
 
-### Recommendation
-New templates should start as `draft` until minimally reviewed.
-
----
-
-## 10. Failure Cases
-
-### Bad blank PDF
-- unreadable
-- corrupted
-- weird page structure
-
-### Weak field inference
-- labels do not map cleanly
-- no clear widget or field geometry
-
-### Unstable anchors
-- chosen anchors are likely to be obscured by filled data
-
-### Response
-Registration should fail clearly or remain in `draft` until fixed.
-
----
-
-## 11. MVP Recommendation
-
-For MVP, implement template registration as:
-1. ingest clean blank PDF
-2. extract AcroForm fingerprint and page signature
-3. generate initial schema/manifest
-4. save template folder artifacts
-5. require light manual review
-6. activate template after review
-
-This is practical and safe.
-
----
-
-## 12. Final Recommendation
-
-The template registration workflow should be semi-automatic and artifact-based.
-
-That gives the analyzer:
-- clean known templates,
-- stable matching targets,
-- and realistic runtime extraction behavior.
+This preserves a clean product behavior while allowing the analyzer to grow its template library over time.

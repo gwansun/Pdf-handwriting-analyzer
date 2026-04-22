@@ -173,6 +173,201 @@
       "bbox": [483.001, 93.716, 582.001, 104.998],
       "input_mode": "handwritten",
       "validation_hints": ["date_format"]
+    },
+    {
+      "field_name": "Q1_HomeWork_Radio",
+      "field_label": "Q1: Did the employee work at home?",
+      "field_type": "radio",
+      "page_number": 1,
+      "full_acroform_path": "form1[0].Page1[0].PartC[0].Q1[0].Q1[0].Line_1_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q2_SellsGoods_Radio",
+      "field_label": "Q2: Did the employer sell goods?",
+      "field_type": "radio",
+      "page_number": 1,
+      "full_acroform_path": "form1[0].Page1[0].PartC[0].Q2[0].Q1[0].Q1_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q2_EmployerProvides_Radio",
+      "field_label": "Q2: Does the employer provide an office or workspace?",
+      "field_type": "radio",
+      "page_number": 1,
+      "full_acroform_path": "form1[0].Page1[0].PartC[0].Q2[0].Q2[0].Q2_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q3_Conditions_Radio",
+      "field_label": "Q3: Conditions of employment (Items 1-4)",
+      "field_type": "radio",
+      "page_number": 1,
+      "acroform_leaf_name": "Q3_RadioButtonGroup",
+      "multiple_instances": true,
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q4_Hours_Radio",
+      "field_label": "Q4: Hourly/daily/performance-based employment conditions",
+      "field_type": "radio",
+      "page_number": 2,
+      "acroform_leaf_name": "Q4_RadioButtonGroup",
+      "multiple_instances": true,
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q5_Contract_Radio",
+      "field_label": "Q5: Is employment based on a contract?",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q5[0].Q1[0].Q5_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q5_Reimbursed_Radio",
+      "field_label": "Q5: Employee reimbursed for expenses (Items 1-3)",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q5[0].Reimbursed[0].Line1[0].Line_1_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q5_Reimbursed_Line2_Radio",
+      "field_label": "Q5: Employee reimbursed for expenses (Item 2)",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q5[0].Reimbursed[0].Line2[0].Line_2_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q5_Reimbursed_Line3_Radio",
+      "field_label": "Q5: Employee reimbursed for expenses (Item 3)",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q5[0].Reimbursed[0].Line3[0].Line_3_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q6_Radio",
+      "field_label": "Q6: Employer requires employee to pay expenses?",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q6[0].Q1[0].Q6_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q7_Radio",
+      "field_label": "Q7: Employee must account for expenses?",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q7[0].Q1[0].Q7_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q8_Radio",
+      "field_label": "Q8: Employer pays for expenses or provides allowance?",
+      "field_type": "radio",
+      "page_number": 2,
+      "full_acroform_path": "form1[0].Page2[0].PartC_Continued[0].Q8[0].Q1[0].Q8_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q9_Radio",
+      "field_label": "Q9: Employer requires or makes payments for employment-related expenses",
+      "field_type": "radio",
+      "page_number": 2,
+      "acroform_leaf_name": "Q9_RadioButtonGroup",
+      "multiple_instances": true,
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q10_Radio",
+      "field_label": "Q10: Employer is a registered charity or non-profit?",
+      "field_type": "radio",
+      "page_number": 3,
+      "full_acroform_path": "form1[0].Page3[0].PartC_Continued[0].Q10[0].Q1[0].Q10_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q10_Reimbursed_Radio",
+      "field_label": "Q10: Employee reimbursed for expenses (Items 1-3)",
+      "field_type": "radio",
+      "page_number": 3,
+      "full_acroform_path": "form1[0].Page3[0].PartC_Continued[0].Q10[0].Reimbursed[0].Line1[0].Line_1_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q10_Reimbursed_Line2_Radio",
+      "field_label": "Q10: Employee reimbursed for expenses (Item 2)",
+      "field_type": "radio",
+      "page_number": 3,
+      "full_acroform_path": "form1[0].Page3[0].PartC_Continued[0].Q10[0].Reimbursed[0].Line2[0].Line_2_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q10_Reimbursed_Line3_Radio",
+      "field_label": "Q10: Employee reimbursed for expenses (Item 3)",
+      "field_type": "radio",
+      "page_number": 3,
+      "full_acroform_path": "form1[0].Page3[0].PartC_Continued[0].Q10[0].Reimbursed[0].Line3[0].Line_3_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q11_Radio",
+      "field_label": "Q11: Employee required to have driver license or vehicle?",
+      "field_type": "radio",
+      "page_number": 3,
+      "full_acroform_path": "form1[0].Page3[0].PartC_Continued[0].Q11[0].Q1[0].Q11_RadioButtonGroup[0]",
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q12_Radio",
+      "field_label": "Q12: Employer pays or reimburses vehicle expenses",
+      "field_type": "radio",
+      "page_number": 3,
+      "acroform_leaf_name": "Q12_RadioButtonGroup",
+      "multiple_instances": true,
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q13_Radio",
+      "field_label": "Q13: Employer provides office supplies, equipment or services",
+      "field_type": "radio",
+      "page_number": 3,
+      "acroform_leaf_name": "Q13_RadioButtonGroup",
+      "multiple_instances": true,
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
+    },
+    {
+      "field_name": "Q14_Radio",
+      "field_label": "Q14: Employer requires or makes payments for home office expenses",
+      "field_type": "radio",
+      "page_number": 3,
+      "acroform_leaf_name": "Q14_RadioButtonGroup",
+      "multiple_instances": true,
+      "input_mode": "preprinted",
+      "options": [{"value": "/0", "label": "Yes"}, {"value": "/1", "label": "No"}]
     }
   ]
 }

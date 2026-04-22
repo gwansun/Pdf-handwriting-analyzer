@@ -22,11 +22,15 @@ from common.response_builder import (
     build_review_required_response,
     build_failure_response,
     build_unknown_template_response,
+    build_unknown_filled_review_response,
     response_to_dict,
     ErrorDetail,
 )
 from extractors.field_router import route_and_extract
 from confidence.scorer import compute_document_confidence
+from template.document_role_classifier import classify_document_role, DocumentRole
+from template.registration import register_blank_pdf
+from template.unknown_fallback import extract_unknown_filled_pdf
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -113,18 +117,142 @@ def analyze(request: dict) -> dict:
     match_result = find_best_match(inspection, registry)
 
     if match_result.template_match_status != "matched":
+        # ── Lane 2/3: No template matched — classify document role ───────────────
         logger.info(f"No template match (score={match_result.match_score:.3f})")
-        err = ErrorDetail(
-            code="UNKNOWN_TEMPLATE",
-            message=f"No matching template found (best score={match_result.match_score:.3f})",
-            retryable=False,
+        role_result = classify_document_role(inspection, pdf_path=validated.file.path)
+        logger.info(
+            f"Document role classification: role={role_result.role} "
+            f"(confidence={role_result.confidence:.3f}), reasons={role_result.reasons}"
         )
-        return response_to_dict(build_unknown_template_response(
-            request_id=validated.request_id,
-            job_id=validated.job_id,
-            page_count=inspection.page_count,
-            error_detail=err,
-        ))
+
+        if role_result.role == DocumentRole.BLANK_TEMPLATE_CANDIDATE:
+            # ── Lane 2: Blank PDF, no template artifacts → auto-register ─────────
+            logger.info(f"Blank template candidate detected — running registration")
+            reg_result = register_blank_pdf(
+                pdf_path=validated.file.path,
+                inspection=inspection,
+                templates_dir=None,  # use default TEMPLATES_DIR
+                activate=False,      # always start as draft
+            )
+
+            if reg_result.success:
+                logger.info(
+                    f"Template auto-registration succeeded: "
+                    f"template_id={reg_result.template_id}, "
+                    f"folder={reg_result.template_folder}, "
+                    f"status={reg_result.activation_status}"
+                )
+                # Re-run matched-template extraction with the newly registered template
+                # The registry has been reloaded, so find_best_match should now succeed
+                match_result = find_best_match(inspection, registry)
+                if match_result.template_match_status == "matched":
+                    logger.info(
+                        f"Re-matched after registration: "
+                        f"template={match_result.template_id} (score={match_result.match_score:.3f})"
+                    )
+                    # Continue to normal matched-template extraction below
+                else:
+                    # Registration succeeded but re-match still failed — fall through
+                    # to fallback lane rather than failing
+                    logger.warning(
+                        f"Template registered but re-match failed "
+                        f"(score={match_result.match_score:.3f}) — using fallback lane"
+                    )
+                    fallback_result = extract_unknown_filled_pdf(
+                        pdf_path=validated.file.path,
+                        inspection=inspection,
+                        glm_available=glm_available,
+                    )
+                    return response_to_dict(
+                        build_unknown_filled_review_response(
+                            request_id=validated.request_id,
+                            job_id=validated.job_id,
+                            page_count=inspection.page_count,
+                            overall_confidence=fallback_result.overall_confidence,
+                            field_count=fallback_result.field_count,
+                            warnings=fallback_result.warnings,
+                            error=ErrorDetail(
+                                code="UNKNOWN_TEMPLATE",
+                                message=(
+                                    f"Template auto-registered ({reg_result.template_id}) "
+                                    f"but extraction re-match failed. "
+                                    "Manual review required."
+                                ),
+                                retryable=False,
+                            ) if not fallback_result.success else None,
+                        )
+                    )
+            else:
+                # Registration failed — fall back to provisional extraction
+                logger.error(
+                    f"Template auto-registration failed: errors={reg_result.errors}"
+                )
+                fallback_result = extract_unknown_filled_pdf(
+                    pdf_path=validated.file.path,
+                    inspection=inspection,
+                    glm_available=glm_available,
+                )
+                return response_to_dict(
+                    build_unknown_filled_review_response(
+                        request_id=validated.request_id,
+                        job_id=validated.job_id,
+                        page_count=inspection.page_count,
+                        overall_confidence=fallback_result.overall_confidence,
+                        field_count=fallback_result.field_count,
+                        warnings=[
+                            {
+                                "code": "REGISTRATION_FAILED",
+                                "message": (
+                                    f"Template auto-registration failed: {'; '.join(reg_result.errors)}. "
+                                    "Provisional extraction was used instead."
+                                ),
+                            },
+                            *fallback_result.warnings,
+                        ],
+                    )
+                )
+
+        elif role_result.role == DocumentRole.FILLED_INSTANCE:
+            # ── Lane 3: Filled PDF, no template match → provisional extraction ──
+            logger.info(f"Unknown filled PDF — using provisional fallback extraction")
+            fallback_result = extract_unknown_filled_pdf(
+                pdf_path=validated.file.path,
+                inspection=inspection,
+                glm_available=glm_available,
+            )
+            return response_to_dict(
+                build_unknown_filled_review_response(
+                    request_id=validated.request_id,
+                    job_id=validated.job_id,
+                    page_count=inspection.page_count,
+                    overall_confidence=fallback_result.overall_confidence,
+                    field_count=fallback_result.field_count,
+                    warnings=fallback_result.warnings,
+                    error=ErrorDetail(
+                        code="UNKNOWN_TEMPLATE",
+                        message=str(fallback_result.error),
+                        retryable=False,
+                    ) if fallback_result.error else None,
+                )
+            )
+
+        else:
+            # ── Invalid/unsupported document type — safe failure ─────────────────
+            logger.warning(f"Document classified as invalid_or_unsupported — failing safely")
+            err = ErrorDetail(
+                code="UNSUPPORTED_DOCUMENT",
+                message=(
+                    f"Document could not be classified as a template or filled form. "
+                    f"Classification: {role_result.role} (confidence={role_result.confidence:.3f}). "
+                    f"Signals: blank={role_result.blank_signals}, filled={role_result.filled_signals}"
+                ),
+                retryable=False,
+            )
+            return response_to_dict(build_failure_response(
+                request_id=validated.request_id,
+                job_id=validated.job_id,
+                error=err,
+            ))
 
     logger.info(f"Matched template: {match_result.template_id} (score={match_result.match_score:.3f})")
 
