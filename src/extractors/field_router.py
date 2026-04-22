@@ -60,9 +60,12 @@ def route_and_extract(
         bbox=bbox,
     )
 
+    import sys as _sys
+    _sys.stderr.write(f"DEBUG route_and_extract: field_name={field_name}, field_type={field_type}\n")
     if field_type in HANDWRITTEN_TYPES:
         return _extract_handwritten(pdf_path, page_sizes, field_def, fn, glm_available, gemma_available)
     elif field_type in TYPED_TYPES:
+        _sys.stderr.write(f"DEBUG: routing to _extract_typed\n")
         return _extract_typed(pdf_path, page_sizes, field_def, fn)
     elif field_type in CHECKBOX_TYPES:
         return _extract_checkbox(pdf_path, page_sizes, field_def, fn, glm_available)
@@ -244,6 +247,8 @@ def _extract_typed(
     fn: ExtractionResult,
 ) -> ExtractionResult:
     """Extract typed text via pypdf direct text extraction."""
+    import sys
+    print(f"DEBUG _extract_typed called: field={field_def.get('field_name')}, type={field_def.get('field_type')}", file=sys.stderr)
     try:
         reader = pypdf.PdfReader(pdf_path, strict=False)
         if reader.is_encrypted:
@@ -263,18 +268,18 @@ def _extract_typed(
 
         def find_field_value(fields_dict, target_leaf):
             for fname, fobj in fields_dict.items():
-                # Extract leaf name
                 last = fname.split(".")[-1]
                 this_leaf = last.rstrip("]").split("[")[0]
                 if this_leaf == target_leaf:
                     v = fobj.get("/V", "")
                     if v:
                         return str(v)
-                # Check kids
-                if "/Kids" in fobj:
-                    for kid in fobj["/Kids"]:
-                        if hasattr(kid, "get") and "/V" in kid:
-                            return str(kid.get("/V", ""))
+                    # No /V at this level — check kids ONLY if this IS the target field
+                    if "/Kids" in fobj:
+                        for kid in fobj["/Kids"]:
+                            if hasattr(kid, "get") and "/V" in kid:
+                                return str(kid.get("/V", ""))
+                    return None
             return None
 
         field_value = find_field_value(fields, leaf_name)
