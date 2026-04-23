@@ -32,6 +32,15 @@ from confidence.scorer import compute_document_confidence
 from template.document_role_classifier import classify_document_role, DocumentRole
 from template.registration import register_blank_pdf
 from template.unknown_fallback import extract_unknown_filled_pdf
+from template.registry_api_helpers import (
+    normalize_template_list,
+    normalize_template_detail,
+    normalize_registration_result,
+    error_not_found,
+    error_invalid_request,
+    error_invalid_action,
+    error_internal,
+)
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -257,7 +266,7 @@ def analyze(request: dict) -> dict:
     avg_confidence, _review_required, _low_conf_count = compute_document_confidence(
         field_results, CONFIDENCE_REVIEW_THRESHOLD
     )
-    document_needs_review = any(fr.review_required for fr in field_results)
+    document_needs_review = avg_confidence < CONFIDENCE_REVIEW_THRESHOLD
 
     if document_needs_review and gemma_available:
         logger.info(
@@ -376,8 +385,16 @@ def main() -> None:
             sys.exit(1)
 
         data = json.loads(raw)
-        result = analyze(data)
 
+        # ── Action envelope dispatch ──────────────────────────────────────
+        action = data.get("action")
+        if action is not None:
+            result = _dispatch_registry_action(action, data)
+            sys.stdout.write(json.dumps(result, indent=2) + "\n")
+            return
+
+        # Default: PDF analysis path
+        result = analyze(data)
         sys.stdout.write(json.dumps(result, indent=2) + "\n")
 
     except json.JSONDecodeError as e:
@@ -410,6 +427,139 @@ def main() -> None:
             error=err,
         )
         sys.stdout.write(json.dumps(response_to_dict(resp), indent=2) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Registry action dispatch
+# ---------------------------------------------------------------------------
+
+SUPPORTED_ACTIONS = {"list_templates", "get_template_detail", "register_template"}
+
+
+def _dispatch_registry_action(action: str, data: dict) -> dict:
+    """
+    Dispatch a registry action and return a JSON-serializable dict.
+
+    All exceptions are caught here and converted to structured error responses
+    so no raw tracebacks escape to stdout.
+    """
+    try:
+        if action == "list_templates":
+            return _handle_list_templates()
+        elif action == "get_template_detail":
+            return _handle_get_template_detail(data)
+        elif action == "register_template":
+            return _handle_register_template(data)
+        else:
+            return error_invalid_action(action)
+    except Exception as exc:
+        logger.exception(f"Error handling action '{action}': {exc}")
+        return error_internal(str(exc), action)
+
+
+def _handle_list_templates() -> dict:
+    """``action: list_templates`` — return all active templates."""
+    registry = TemplateRegistry()
+    return normalize_template_list(registry)
+
+
+def _handle_get_template_detail(data: dict) -> dict:
+    """``action: get_template_detail`` — return one template or not-found."""
+    template_id = data.get("template_id")
+    if not template_id:
+        return error_invalid_request("template_id is required", "get_template_detail")
+
+    registry = TemplateRegistry()
+    result = normalize_template_detail(registry, template_id)
+    if result is None:
+        return error_not_found(f"Template '{template_id}' not found", "get_template_detail")
+    return result
+
+
+def _handle_register_template(data: dict) -> dict:
+    """
+    ``action: register_template`` — inspect and register a blank PDF.
+
+    Request fields
+    -------------
+    file_path : str  (required, absolute path)
+    template_family_hint : str | None  (optional)
+    activate : bool  (optional, default False)
+    """
+    file_path = data.get("file_path")
+    if not file_path:
+        return _registration_failure_response(
+            "file_path is required",
+            ["file_path is required"],
+        )
+
+    # Reject relative paths — only absolute paths are accepted
+    if not Path(file_path).is_absolute():
+        return _registration_failure_response(
+            f"file_path must be absolute, got relative: {file_path}",
+            [f"Relative paths are not allowed: {file_path}"],
+        )
+
+    path = Path(file_path).resolve()
+    if not path.exists() or not path.is_file():
+        return _registration_failure_response(
+            f"File not found or not a file: {file_path}",
+            [f"File not found: {file_path}"],
+        )
+
+    # Run PDF inspection
+    try:
+        inspection = inspect_pdf(str(path))
+    except PDFInspectionError as exc:
+        return _registration_failure_response(
+            f"PDF inspection failed: {exc.message}",
+            [f"Failed to inspect PDF: {exc.message}"],
+        )
+    except Exception as exc:
+        return _registration_failure_response(
+            f"PDF inspection failed: {exc}",
+            [f"Failed to inspect PDF: {exc}"],
+        )
+
+    # Template family hint
+    template_family_hint = data.get("template_family_hint")
+    activate = bool(data.get("activate", False))
+
+    # Run registration
+    try:
+        reg_result = register_blank_pdf(
+            pdf_path=str(path),
+            inspection=inspection,
+            template_family_hint=template_family_hint,
+            templates_dir=None,
+            activate=activate,
+        )
+    except Exception as exc:
+        logger.exception(f"Registration failed: {exc}")
+        return _registration_failure_response(
+            str(exc),
+            [f"Registration failed: {exc}"],
+        )
+
+    return normalize_registration_result(reg_result)
+
+
+def _registration_failure_response(message: str, errors: list[str]) -> dict:
+    """Build a registration-failure response in the standard shape."""
+    return {
+        "action": "register_template",
+        "success": False,
+        "template_id": None,
+        "template_folder": None,
+        "activation_status": "error",
+        "artifacts": {
+            "blank_pdf_path": None,
+            "manifest_path": None,
+            "schema_path": None,
+        },
+        "warnings": [],
+        "errors": errors,
+    }
 
 
 if __name__ == "__main__":
