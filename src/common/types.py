@@ -43,6 +43,15 @@ class AnalyzerRequest:
 
 
 @dataclass
+class ReviewedField:
+    """Output from a Gemma whole-PDF review pass for a single field."""
+    field_name: str
+    reviewed_value: str
+    reviewed_confidence: Optional[float] = None
+    reasoning: Optional[str] = None
+
+
+@dataclass
 class FieldResult:
     field_name: str
     field_label: str
@@ -53,6 +62,8 @@ class FieldResult:
     review_required: bool = False
     warnings: list = field(default_factory=list)
     bbox: list = field(default_factory=list)  # [x0, y0, x1, y1]
+    # Gemma review output — attached separately; never overwrites value/confidence
+    review: Optional[str] = None
 
 
 @dataclass

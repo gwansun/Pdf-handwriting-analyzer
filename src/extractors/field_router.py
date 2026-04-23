@@ -7,8 +7,7 @@ from typing import Optional
 import pypdf
 
 from .glm_ocr import extract_handwritten_text
-from .gemma_client import review_extraction
-from common.config import CONFIDENCE_REVIEW_THRESHOLD, GEMMA_ENDPOINT
+from common.config import CONFIDENCE_REVIEW_THRESHOLD
 
 # Fields that are always typed (printed form labels, not filled by hand)
 TYPED_TYPES = {"typed"}
@@ -39,10 +38,12 @@ def route_and_extract(
     page_sizes: list[tuple],
     field_def: dict,
     glm_available: bool = True,
-    gemma_available: bool = True,
 ) -> ExtractionResult:
     """
     Route a field to the correct extractor and return result.
+
+    Note: gemma_available is no longer a parameter — Gemma review is no longer
+    called from field routing. Document-level Gemma review is handled in main.py.
     """
     field_name = field_def["field_name"]
     field_type = field_def["field_type"]
@@ -60,12 +61,9 @@ def route_and_extract(
         bbox=bbox,
     )
 
-    import sys as _sys
-    _sys.stderr.write(f"DEBUG route_and_extract: field_name={field_name}, field_type={field_type}\n")
     if field_type in HANDWRITTEN_TYPES:
-        return _extract_handwritten(pdf_path, page_sizes, field_def, fn, glm_available, gemma_available)
+        return _extract_handwritten(pdf_path, page_sizes, field_def, fn, glm_available)
     elif field_type in TYPED_TYPES:
-        _sys.stderr.write(f"DEBUG: routing to _extract_typed\n")
         return _extract_typed(pdf_path, page_sizes, field_def, fn)
     elif field_type in CHECKBOX_TYPES:
         return _extract_checkbox(pdf_path, page_sizes, field_def, fn, glm_available)
@@ -104,9 +102,13 @@ def _extract_handwritten(
     field_def: dict,
     fn: ExtractionResult,
     glm_available: bool,
-    gemma_available: bool,
 ) -> ExtractionResult:
-    """Extract handwritten text via GLM-OCR, with Gemma fallback for crop failures."""
+    """Extract handwritten text via GLM-OCR.
+
+    Gemma review is no longer called here. Instead, after all fields are
+    extracted, the document-level average confidence is computed in main.py
+    and Gemma is called once per PDF if it is below the review threshold.
+    """
     from .field_cropper import crop_field_region
 
     bbox = field_def.get("bbox", [])
@@ -121,14 +123,14 @@ def _extract_handwritten(
 
         if img is None:
             # Poppler/pdf2image not available — can't render the page.
-            # Fall back: try page-level pypdf text extraction + Gemma review.
+            # Fall back: try page-level pypdf text extraction.
             fn.warnings = ["Crop failed — pdf2image/poppler unavailable; used page-level extraction fallback"]
-            return _fallback_page_extraction(pdf_path, page_number, field_def, fn, gemma_available)
+            return _fallback_page_extraction(pdf_path, page_number, field_def, fn)
 
         if not glm_available:
             # GLM-OCR unavailable — use page-level extraction as last resort
             fn.warnings = ["GLM-OCR unavailable; used page-level extraction fallback"]
-            return _fallback_page_extraction(pdf_path, page_number, field_def, fn, gemma_available)
+            return _fallback_page_extraction(pdf_path, page_number, field_def, fn)
 
         text, conf = extract_handwritten_text(img, field_def.get("field_label", ""))
         fn.value = text
@@ -145,26 +147,11 @@ def _extract_handwritten(
                 fn.warnings = ["Born-digital form field — used AcroForm value"]
                 return fn
 
-        # Trigger Gemma review if low confidence
-        if conf < CONFIDENCE_REVIEW_THRESHOLD and text and gemma_available:
-            refined_text, refined_conf, reasoning = review_extraction(
-                field_label=field_def.get("field_label", ""),
-                raw_text=text,
-                field_type=field_def.get("field_type", ""),
-            )
-            fn.value = refined_text
-            fn.confidence = refined_conf
-            if refined_conf < CONFIDENCE_REVIEW_THRESHOLD:
-                fn.review_required = True
-                fn.warnings = [f"Low confidence: {reasoning}"]
-            else:
-                fn.review_required = False
-                fn.warnings = []
-        else:
-            fn.review_required = conf < CONFIDENCE_REVIEW_THRESHOLD
-            fn.warnings = []
-
-        fn.validator_status = "valid" if fn.confidence >= 0.7 else "uncertain"
+        # Set review_required based solely on GLM confidence — Gemma review
+        # happens once per document in main.py, not per-field here.
+        fn.review_required = conf < CONFIDENCE_REVIEW_THRESHOLD
+        fn.warnings = []
+        fn.validator_status = "valid" if conf >= CONFIDENCE_REVIEW_THRESHOLD else "uncertain"
         return fn
 
     except Exception as e:
@@ -177,7 +164,6 @@ def _fallback_page_extraction(
     page_number: int,
     field_def: dict,
     fn: ExtractionResult,
-    gemma_available: bool,
 ) -> ExtractionResult:
     """
     Fallback extraction when crop fails or GLM-OCR is unavailable.
@@ -247,8 +233,6 @@ def _extract_typed(
     fn: ExtractionResult,
 ) -> ExtractionResult:
     """Extract typed text via pypdf direct text extraction."""
-    import sys
-    print(f"DEBUG _extract_typed called: field={field_def.get('field_name')}, type={field_def.get('field_type')}", file=sys.stderr)
     try:
         reader = pypdf.PdfReader(pdf_path, strict=False)
         if reader.is_encrypted:

@@ -191,7 +191,7 @@ Email Manager should tolerate these fields if present, but not require them to b
 ### `review_required`
 - extraction usable
 - but one or more fields are uncertain
-- user should review low-confidence fields
+- user should review low-confidence document results
 
 ### `failed`
 - request invalid, file unreadable, template unknown, or extraction could not proceed safely

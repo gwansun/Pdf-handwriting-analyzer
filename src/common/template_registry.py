@@ -157,6 +157,29 @@ class TemplateRegistry:
             self.load_all()
         return self._cache.get(template_id)
 
+    def get_manifest(self, template_id: str) -> dict:
+        """
+        Return a template manifest dict for use in Gemma review payloads.
+
+        Returns an empty dict if the template is not found.
+        """
+        record = self.get(template_id)
+        if not record:
+            return {}
+        return {
+            "template_id": record.template_id,
+            "template_family": record.template_family,
+            "display_name": record.display_name,
+            "template_version": record.template_version,
+            "runtime_hints": {
+                "default_input_mode": record.runtime_hints.default_input_mode,
+                "primary_language": record.runtime_hints.primary_language,
+                "alignment_mode": record.runtime_hints.alignment_mode,
+                "unknown_field_policy": record.runtime_hints.unknown_field_policy,
+                "preferred_extractors": record.runtime_hints.preferred_extractors,
+            },
+        }
+
     def list_active(self) -> list[TemplateRecord]:
         """Return all active template records."""
         if not self._loaded:

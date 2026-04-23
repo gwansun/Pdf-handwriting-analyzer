@@ -1,8 +1,12 @@
 # Field Response Shape Decision
 
-## Locked MVP decision
+## Locked decision
 
-For handwritten fields, the analyzer response should keep the primary extraction result and attach Gemma review text separately when review is triggered.
+For handwritten fields, the analyzer response should keep the primary first-pass extraction result and attach Gemma review output separately when document-level review is triggered.
+
+Gemma review output may come from either:
+- **matched-template review**
+- **fallback review** when manifest/schema metadata is unavailable
 
 ---
 
@@ -29,12 +33,13 @@ Recommended MVP field structure:
 ## Locked meaning of each field
 
 - `value`
-  - The primary extraction result from GLM-OCR
+  - The primary first-pass extraction result from GLM-OCR (or other primary extraction route)
 - `confidence`
-  - The original confidence score from GLM-OCR
+  - The original first-pass confidence score
 - `review`
-  - Gemma review/refine text when confidence is below threshold
-  - `null` when no review is triggered
+  - Gemma review/refine text when document-level review is triggered and Gemma provides a reviewed result for this field
+  - this review output may come from either matched-template review or fallback review mode
+  - `null` when no review is triggered or when Gemma does not revise that field
 - `validation_status`
   - Validation outcome for the field
 - `bbox`
@@ -46,8 +51,8 @@ Recommended MVP field structure:
 
 ## Review trigger behavior
 
-### Normal-confidence field
-If `confidence >= 0.70`:
+### Normal-confidence document
+If average document confidence is `>= 0.70`:
 
 ```json
 {
@@ -59,8 +64,9 @@ If `confidence >= 0.70`:
 }
 ```
 
-### Low-confidence field
-If `confidence < 0.70`:
+### Low-confidence document
+If average document confidence is `< 0.70`, the document enters the Gemma whole-PDF review path.
+A reviewed field may then look like:
 
 ```json
 {
@@ -77,19 +83,22 @@ If `confidence < 0.70`:
 ## Locked interpretation
 
 ### Chosen MVP option
-- `value` remains the raw primary extraction from GLM-OCR
-- `review` contains Gemma's review/refine text
+- `value` remains the raw primary first-pass extraction result
+- `review` contains Gemma's reviewed/refined text
 
 This means the analyzer does **not** silently overwrite the primary extraction result.
 
 ---
 
 ## Document-level rule
-- If any field has `confidence < 0.70`, the top-level document status becomes `review_required`.
+- If average document confidence is `< 0.70`, the top-level document status becomes `review_required`.
+- Gemma is called **once for the document**, not once per field.
+- Gemma review should still be available even when manifest/schema metadata is missing.
 
 ---
 
 ## Notes
 - This is intentionally minimal for MVP.
 - No per-field model provenance is required.
-- More structured review payloads can be added later if needed.
+- More structured review payloads such as `review_reasoning` or `review_confidence` can be added later if needed.
+- Detailed implementation plan: `IMPLEMENTATION_PLAN_GEMMA_WHOLE_PDF_REVIEW.md`

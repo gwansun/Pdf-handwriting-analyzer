@@ -250,7 +250,7 @@ Purpose:
 Used after extraction.
 
 Purpose:
-- inspect low-confidence fields
+- inspect low-confidence document results / review targets
 - compare crops, extracted text, and evidence signals
 
 ---
@@ -299,7 +299,7 @@ For MVP, keep the pipeline simple:
 ## 10. Future Extensions
 
 - multi-template matching
-- active learning for low-confidence fields
+- active learning for low-confidence document results
 - human correction feedback loop
 - confidence calibration on labeled dataset
 - review UI

@@ -20,6 +20,8 @@ def compute_document_confidence(
 
     avg_conf = sum(confidences) / len(confidences)
     low_conf_count = sum(1 for c in confidences if c < review_threshold)
-    review_required = avg_conf < review_threshold or low_conf_count > 0
+    # review_required is triggered solely by average document confidence < threshold
+    # (not by low_conf_count > 0, which was the old per-field Gemma trigger)
+    review_required = avg_conf < review_threshold
 
     return avg_conf, review_required, low_conf_count

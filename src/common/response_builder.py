@@ -106,6 +106,7 @@ def build_unknown_filled_review_response(
     page_count: int,
     overall_confidence: float,
     field_count: int,
+    fields: Optional[list[FieldResult]] = None,
     warnings: Optional[list[dict]] = None,
     error: Optional[ErrorDetail] = None,
 ) -> AnalyzerResponse:
@@ -126,6 +127,8 @@ def build_unknown_filled_review_response(
         Conservative overall confidence (should be low, e.g. 0.20–0.35).
     field_count : int
         Number of fields extracted (may be 0).
+    fields : list[FieldResult], optional
+        Best-effort extracted fields for the unknown-template path.
     warnings : list[dict], optional
         Additional warning objects. UNKNOWN_TEMPLATE warning is always included.
     error : ErrorDetail, optional
@@ -156,7 +159,7 @@ def build_unknown_filled_review_response(
         job_id=job_id,
         status="review_required",
         summary=summary,
-        fields=[],
+        fields=fields or [],
         warnings=all_warnings,
         error=error,
     )
@@ -196,6 +199,7 @@ def response_to_dict(resp: AnalyzerResponse) -> dict[str, Any]:
                 "review_required": f.review_required,
                 "warnings": f.warnings,
                 "bbox": f.bbox,
+                "review": f.review,
             }
             for f in resp.fields
         ]

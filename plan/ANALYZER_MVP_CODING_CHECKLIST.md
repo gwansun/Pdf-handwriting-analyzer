@@ -76,7 +76,7 @@ Primary reference:
 - [ ] Add warnings where needed
 
 ## 11. Review-required logic
-- [ ] If any field has confidence `< 0.70`, set top-level status to `review_required`
+- [ ] If average document confidence is `< 0.70`, set top-level status to `review_required`
 - [ ] Otherwise return normal completed flow when extraction succeeds
 - [ ] Preserve fail-fast behavior for unrecoverable request/template failures
 
@@ -94,7 +94,7 @@ Primary reference:
 
 ## 14. Test coverage
 - [ ] Add test for valid matched template flow
-- [ ] Add test for low-confidence handwritten field causing `review_required`
+- [ ] Add test for average document confidence `< 0.70` causing `review_required`
 - [ ] Add test for unknown template fail-fast behavior
 - [ ] Add test for unreadable/missing file path
 - [ ] Add test for encrypted PDF with empty-password decrypt

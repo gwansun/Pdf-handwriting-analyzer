@@ -129,7 +129,8 @@ This document provides a concrete top-level analyzer response shape for MVP.
 
 ## Locked rules reflected here
 - `status` is one of: `completed`, `review_required`, `failed`
-- if any field has confidence `< 0.70`, top-level `status` becomes `review_required`
+- if average document confidence is `< 0.70`, top-level `status` becomes `review_required`
+- Gemma review may run in either matched-template mode or fallback mode when schema/manifest is unavailable
 - `value` keeps the primary GLM-OCR output for handwritten fields
 - `review` stores Gemma review text when triggered
 - `error` is `null` unless the whole request fails

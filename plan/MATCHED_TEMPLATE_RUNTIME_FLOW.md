@@ -18,7 +18,7 @@ It assumes:
 - template matching has already succeeded
 - a template manifest and schema can be loaded
 
-This document does **not** define the unknown-template fallback path.
+This document does **not** define the unknown-template fallback path in full detail, but it does note that Gemma review should still be possible without manifest/schema metadata.
 
 ---
 
@@ -34,8 +34,10 @@ The analyzer should:
 2. align the filled PDF to template coordinates,
 3. extract field regions,
 4. choose the right extraction route per field,
-5. validate and score results,
-6. return structured JSON.
+5. run first-pass extraction,
+6. trigger one document-level Gemma review pass if needed,
+7. validate and score results,
+8. return structured JSON.
 
 ---
 
@@ -50,9 +52,12 @@ Validated request
   -> map schema fields onto aligned pages
   -> crop field regions
   -> route each field to extraction path
-  -> extract values
-  -> normalize and validate values
-  -> compute field confidence
+  -> run first-pass extraction
+  -> compute first-pass field confidence
+  -> compute average document confidence
+  -> if average document confidence < 0.70:
+       run one Gemma whole-document review pass
+       merge reviewed outputs
   -> compute document-level review flag
   -> assemble contract response
 ```
@@ -172,14 +177,14 @@ Create extraction-ready inputs for each field.
 - crop quality notes
 
 ### Note
-The crop stage should not yet decide extraction route. It should prepare clean inputs first.
+The crop stage should not yet decide review behavior. It should prepare clean inputs first.
 
 ---
 
 ## Stage 6. Route field to extraction path
 
 ### Goal
-Choose the best extraction strategy for each field.
+Choose the best primary extraction strategy for each field.
 
 ### Inputs
 - template field definition
@@ -208,176 +213,96 @@ Choose the best extraction strategy for each field.
 
 ---
 
-## Stage 7. Extract field value
+## Stage 7. Run first-pass extraction
 
 ### Goal
-Run the chosen extractor and gather raw candidates.
+Run the chosen extractor and gather primary extraction results.
 
 ### Outputs per field
 - raw extracted value
 - interpreted field value
 - alternate candidates if available
 - extractor confidence
-- extraction method used
 
-### Important rule
-Keep extraction confidence separate from final confidence.
-
-### Handwritten field rule
-For handwritten fields, the analyzer should preserve the same schema field identity but return the interpreted handwritten text as the field value.
-
-Example:
-- schema field: `employee_name`
-- extracted value: `Leonardo Romero`
-- confidence: `0.90`
-
-This applies to handwritten fields broadly, not only signatures.
+### Important MVP rule
+- GLM-OCR may still run per handwritten field
+- Gemma does **not** run here per field
+- this stage is first-pass extraction only
 
 ---
 
-## Stage 8. Normalize and validate
+## Stage 8. Determine whether document-level review is needed
 
 ### Goal
-Convert raw extracted values into stable output values and validation status.
+Decide whether the PDF should enter the Gemma whole-document review pass.
+
+### Rule
+If **average document confidence** is `< 0.70`:
+- trigger one Gemma review call for the whole PDF
+
+### Inputs to Gemma review (matched-template path)
+- template manifest/runtime hints
+- full schema
+- first-pass extraction results for all fields
+- document confidence summary
+- review target field list
+
+### Inputs to Gemma review (fallback path when manifest/schema missing)
+- PDF metadata
+- page count
+- inspection signals
+- provisional extraction results if available
+- AcroForm/page text signals if available
+- document confidence summary
+- classification / warning context
+
+### Outputs from Gemma review
+- reviewed field values for selected fields
+- optional review notes / reasoning
+
+### Merge behavior
+- preserve original first-pass `value`
+- preserve original first-pass `confidence`
+- attach Gemma review output separately
+
+---
+
+## Stage 9. Validate and score results
+
+### Goal
+Run normalization, validation, and confidence aggregation.
 
 ### Actions
-- normalize whitespace
-- normalize date/number formats
-- validate against field rules
-- attach warnings
+- validate individual field values
+- compute document-level confidence summary
+- determine `review_required`
 
-### Output per field
-- normalized value
-- validation status
-- warning list
+### Rule
+If average document confidence is `< 0.70`:
+- top-level document status is `review_required`
 
 ---
 
-## Stage 9. Compute final field confidence
+## Stage 10. Build final response
 
 ### Goal
-Fuse runtime signals into final field confidence.
+Return one structured JSON response that reflects:
+- matched template result
+- field extraction outputs
+- review outputs when present
+- document-level review state
 
-### Inputs
-- extractor confidence
-- image quality
-- alignment score
-- validation score
-- ambiguity/candidate margin
-- field type routing confidence
-
-### Outputs per field
-- final confidence
-- review_required flag
-- optional confidence breakdown
+### Response should contain
+- top-level status
+- summary
+- fields
+- warnings
+- optional error section
 
 ---
 
-## Stage 10. Compute document-level summary
-
-### Goal
-Produce top-level analyzer result summary.
-
-### Inputs
-- template match result
-- field results
-- warning counts
-- low-confidence counts
-
-### Outputs
-- page count
-- overall confidence
-- review_required
-- field count
-- warning count
-
-### Recommended policy
-If one or more critical fields are low confidence, mark document `review_required`.
-
----
-
-## Stage 11. Build response
-
-### Goal
-Return contract-compliant JSON to Email Manager.
-
-### Must include
-- `request_id`
-- `job_id`
-- `status`
-- `summary`
-- `fields`
-
-### Optional
-- `warnings`
-- `raw_result`
-- `candidates`
-- `confidence_breakdown`
-
-### Status rule
-- if extraction is usable -> `completed`
-- if extraction is usable but caution is needed -> `review_required`
-- if matched-template path fails critically -> `failed`
-
----
-
-## 6. Recommended Runtime Field Object
-
-Internal runtime field object should carry at least:
-- `field_name`
-- `field_label`
-- `field_type`
-- `page_number`
-- `bbox`
-- `context_bbox`
-- `route`
-- `raw_value`
-- `interpreted_value`
-- `normalized_value`
-- `extractor_confidence`
-- `final_confidence`
-- `validation_status`
-- `warnings`
-- `review_required`
-
-This makes later response building easier.
-
----
-
-## 7. T2200 Example Fit
-
-For T2200-style fillable PDFs, the matched-template path is especially suitable because:
-- AcroForm fingerprint can identify the template strongly
-- known fields like `Last_Name_Fill` and `Tax_Year_Fill` can map directly into schema definitions
-- some fields may support native/form extraction before OCR is needed
-
-This means matched-template runtime can often be faster and more reliable than generic document analysis.
-
----
-
-## 8. MVP Recommendation
-
-For MVP, prioritize this exact matched-template path:
-1. load manifest/schema
-2. inspect page structure
-3. align pages
-4. map field bboxes
-5. crop field regions
-6. route extraction per field
-7. normalize and validate
-8. compute confidence
-9. return structured JSON
-
-This is the core production path for known forms.
-
----
-
-## 9. Final Recommendation
-
-The analyzer should be optimized around matched-template execution first.
-
-Why:
-- it is the safest path
-- it fits the Email Manager integration cleanly
-- it works well with forms like the T2200 example
-- it provides a realistic MVP before unknown-template handling becomes more ambitious
+## Notes
+- This document reflects the whole-document Gemma review design.
+- Gemma is a secondary review/refine layer, not the primary extractor.
+- Gemma review should still be possible even when manifest/schema is unavailable.
+- Detailed implementation plan: `IMPLEMENTATION_PLAN_GEMMA_WHOLE_PDF_REVIEW.md`

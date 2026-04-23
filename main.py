@@ -27,6 +27,7 @@ from common.response_builder import (
     ErrorDetail,
 )
 from extractors.field_router import route_and_extract
+from extractors.gemma_client import review_document_extraction
 from confidence.scorer import compute_document_confidence
 from template.document_role_classifier import classify_document_role, DocumentRole
 from template.registration import register_blank_pdf
@@ -161,27 +162,12 @@ def analyze(request: dict) -> dict:
                     fallback_result = extract_unknown_filled_pdf(
                         pdf_path=validated.file.path,
                         inspection=inspection,
+                        request_id=validated.request_id,
+                        job_id=validated.job_id,
                         glm_available=glm_available,
+                        gemma_available=gemma_available,
                     )
-                    return response_to_dict(
-                        build_unknown_filled_review_response(
-                            request_id=validated.request_id,
-                            job_id=validated.job_id,
-                            page_count=inspection.page_count,
-                            overall_confidence=fallback_result.overall_confidence,
-                            field_count=fallback_result.field_count,
-                            warnings=fallback_result.warnings,
-                            error=ErrorDetail(
-                                code="UNKNOWN_TEMPLATE",
-                                message=(
-                                    f"Template auto-registered ({reg_result.template_id}) "
-                                    f"but extraction re-match failed. "
-                                    "Manual review required."
-                                ),
-                                retryable=False,
-                            ) if not fallback_result.success else None,
-                        )
-                    )
+                    return fallback_result
             else:
                 # Registration failed — fall back to provisional extraction
                 logger.error(
@@ -190,27 +176,12 @@ def analyze(request: dict) -> dict:
                 fallback_result = extract_unknown_filled_pdf(
                     pdf_path=validated.file.path,
                     inspection=inspection,
+                    request_id=validated.request_id,
+                    job_id=validated.job_id,
                     glm_available=glm_available,
+                    gemma_available=gemma_available,
                 )
-                return response_to_dict(
-                    build_unknown_filled_review_response(
-                        request_id=validated.request_id,
-                        job_id=validated.job_id,
-                        page_count=inspection.page_count,
-                        overall_confidence=fallback_result.overall_confidence,
-                        field_count=fallback_result.field_count,
-                        warnings=[
-                            {
-                                "code": "REGISTRATION_FAILED",
-                                "message": (
-                                    f"Template auto-registration failed: {'; '.join(reg_result.errors)}. "
-                                    "Provisional extraction was used instead."
-                                ),
-                            },
-                            *fallback_result.warnings,
-                        ],
-                    )
-                )
+                return fallback_result
 
         elif role_result.role == DocumentRole.FILLED_INSTANCE:
             # ── Lane 3: Filled PDF, no template match → provisional extraction ──
@@ -218,23 +189,12 @@ def analyze(request: dict) -> dict:
             fallback_result = extract_unknown_filled_pdf(
                 pdf_path=validated.file.path,
                 inspection=inspection,
+                request_id=validated.request_id,
+                job_id=validated.job_id,
                 glm_available=glm_available,
+                gemma_available=gemma_available,
             )
-            return response_to_dict(
-                build_unknown_filled_review_response(
-                    request_id=validated.request_id,
-                    job_id=validated.job_id,
-                    page_count=inspection.page_count,
-                    overall_confidence=fallback_result.overall_confidence,
-                    field_count=fallback_result.field_count,
-                    warnings=fallback_result.warnings,
-                    error=ErrorDetail(
-                        code="UNKNOWN_TEMPLATE",
-                        message=str(fallback_result.error),
-                        retryable=False,
-                    ) if fallback_result.error else None,
-                )
-            )
+            return fallback_result
 
         else:
             # ── Invalid/unsupported document type — safe failure ─────────────────
@@ -277,7 +237,6 @@ def analyze(request: dict) -> dict:
             page_sizes=inspection.page_sizes,
             field_def=field_def,
             glm_available=glm_available,
-            gemma_available=gemma_available,
         )
 
         fr = FieldResult(
@@ -290,19 +249,83 @@ def analyze(request: dict) -> dict:
             review_required=result.review_required,
             warnings=result.warnings,
             bbox=result.bbox,
+            review=None,  # populated by Gemma review below if triggered
         )
         field_results.append(fr)
 
-    # ── Stage 6: Compute document-level confidence ───────────────────────────
-    avg_confidence, review_required, low_conf_count = compute_document_confidence(
+    # ── Stage 5.5: Document-level Gemma review ─────────────────────────────
+    avg_confidence, _review_required, _low_conf_count = compute_document_confidence(
         field_results, CONFIDENCE_REVIEW_THRESHOLD
     )
+    document_needs_review = any(fr.review_required for fr in field_results)
 
-    # Override review_required based on any individual field flags
-    review_required = (
-        review_required
-        or any(fr.review_required for fr in field_results)
+    if document_needs_review and gemma_available:
+        logger.info(
+            "At least one field is review_required — invoking Gemma whole-PDF review"
+        )
+
+        # Build first-pass results for Gemma payload
+        first_pass_results = [
+            {
+                "field_name": fr.field_name,
+                "value": fr.value,
+                "confidence": fr.confidence,
+                "review_required": fr.review_required,
+                "warnings": fr.warnings,
+            }
+            for fr in field_results
+        ]
+
+        # Identify review target fields: those explicitly marked review_required
+        review_target_fields = [
+            fr.field_name
+            for fr in field_results
+            if fr.review_required
+        ]
+
+        # Load manifest for matched-template context
+        manifest = registry.get_manifest(match_result.template_id)
+
+        review_result = review_document_extraction(
+            review_mode="matched_template_review",
+            gemma_available=True,
+            template={
+                "template_id": match_result.template_id,
+                "template_family": manifest.get("template_family", ""),
+                "display_name": manifest.get("display_name", ""),
+                "template_version": manifest.get("template_version", ""),
+                "runtime_hints": manifest.get("runtime_hints", {}),
+            },
+            schema_fields=[
+                {
+                    "field_name": f.get("field_name", ""),
+                    "field_label": f.get("field_label", ""),
+                    "field_type": f.get("field_type", ""),
+                    "page_number": f.get("page_number", 1),
+                    "bbox": f.get("bbox", []),
+                }
+                for f in schema.fields
+            ],
+            first_pass_results=first_pass_results,
+            average_document_confidence=avg_confidence,
+            review_target_fields=review_target_fields,
+        )
+
+        # Merge Gemma review outputs into field results
+        review_map = {r.field_name: r for r in review_result.reviewed_fields}
+        for fr in field_results:
+            if fr.field_name in review_map:
+                rf = review_map[fr.field_name]
+                fr.review = rf.reviewed_value
+                logger.info(
+                    f"Gemma reviewed '{fr.field_name}': '{fr.value}' → '{rf.reviewed_value}'"
+                )
+
+    # ── Stage 6: Compute document-level confidence ───────────────────────────
+    avg_confidence, _review_required, low_conf_count = compute_document_confidence(
+        field_results, CONFIDENCE_REVIEW_THRESHOLD
     )
+    review_required = any(fr.review_required for fr in field_results)
 
     warning_count = sum(len(fr.warnings) for fr in field_results)
 
