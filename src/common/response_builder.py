@@ -200,6 +200,7 @@ def response_to_dict(resp: AnalyzerResponse) -> dict[str, Any]:
                 "warnings": f.warnings,
                 "bbox": f.bbox,
                 "review": f.review,
+                "review_comment": f.review_comment,
             }
             for f in resp.fields
         ]

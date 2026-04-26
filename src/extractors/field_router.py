@@ -117,9 +117,39 @@ def _extract_handwritten(
         return fn
 
     page_number = field_def.get("page_number", 1)
+    page_index = max(0, int(page_number) - 1)
+    page_width, page_height = (612.0, 792.0)
+    if page_sizes and page_index < len(page_sizes):
+        try:
+            page_width, page_height = float(page_sizes[page_index][0]), float(page_sizes[page_index][1])
+        except Exception:
+            page_width, page_height = (612.0, 792.0)
 
     try:
-        img = crop_field_region(pdf_path, page_number, bbox, dpi=300)
+        # Apply symmetric padding so the crop includes full-stroke height.
+        # y_pad=8 gives ~111 px at 300 dpi — the minimum that captures full
+        # ascenders/descenders without pulling in printed field labels or
+        # adjacent rows (confirmed empirically: y_pad >= 10 causes GLM to read
+        # "Last name" / "First name" labels; y_pad <= 6 risks cutting strokes).
+        # x_pad=14 gives ~58 px horizontal margin — enough for edge strokes.
+        padded_bbox = [
+            max(0.0, bbox[0] - 14.0),
+            max(0.0, bbox[1] - 8.0),
+            min(page_width, bbox[2] + 14.0),
+            min(page_height, bbox[3] + 8.0),
+        ]
+        img = crop_field_region(pdf_path, page_number, padded_bbox, page_size=(page_width, page_height), dpi=300)
+
+        # Name_Employee_Fill is a composite field (last+first, page 3 of T2200).
+        # Skip GLM — its crop includes the "Name of employee" printed label
+        # which contaminates the reading.  Let the focused-name derivation in
+        # main.py handle it after Gemma reviews First_Name_Fill / Last_Name_Fill.
+        if field_def.get("field_name") == "Name_Employee_Fill":
+            fn.value = ""
+            fn.confidence = 0.0
+            fn.review_required = True
+            fn.warnings = ["Composite name field — handled via focused name derivation"]
+            return fn
 
         if img is None:
             # Poppler/pdf2image not available — can't render the page.
@@ -541,7 +571,15 @@ def _ocr_radio_widget(
 
     def _crop_and_ocr(rect: list[float], pg_num: int) -> tuple[str, float]:
         """Crop a rect and run GLM-OCR. Returns (detected_text, score)."""
-        img = crop_field_region(pdf_path, pg_num, rect, dpi=300)
+        pg_index = max(0, int(pg_num) - 1)
+        if page_sizes and pg_index < len(page_sizes):
+            try:
+                page_size = (float(page_sizes[pg_index][0]), float(page_sizes[pg_index][1]))
+            except Exception:
+                page_size = None
+        else:
+            page_size = None
+        img = crop_field_region(pdf_path, pg_num, rect, page_size=page_size, dpi=300)
         if img is None:
             return "", 0.0
         text, conf = extract_handwritten_text(img, field_def.get("field_label", ""))

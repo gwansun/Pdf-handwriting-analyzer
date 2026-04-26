@@ -5,11 +5,20 @@ Reads AnalyzerRequest JSON from stdin, writes AnalyzerResponse JSON to stdout.
 """
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
-# Ensure src/ is on path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+def _runtime_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).parent.resolve()
+
+
+# Ensure src/ is on path for source execution; frozen builds bundle modules directly.
+if not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(_runtime_root() / "src"))
 
 from common.config import CONFIDENCE_REVIEW_THRESHOLD, GLM_OCR_ENDPOINT, GEMMA_ENDPOINT, ErrorCode
 from common.types import AnalyzerRequest, FieldResult, Summary
@@ -28,6 +37,11 @@ from common.response_builder import (
 )
 from extractors.field_router import route_and_extract
 from extractors.gemma_client import review_document_extraction
+from extractors.gemma_review_pages import (
+    select_relevant_review_pages,
+    render_review_pages,
+    render_review_field_crops,
+)
 from confidence.scorer import compute_document_confidence
 from template.document_role_classifier import classify_document_role, DocumentRole
 from template.registration import register_blank_pdf
@@ -44,8 +58,8 @@ from template.registry_api_helpers import (
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
-LOG_DIR = Path(__file__).parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR = Path(os.getenv("PDF_ANALYZER_LOG_DIR", _runtime_root() / "logs")).resolve()
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -70,12 +84,21 @@ def _check_glm_available() -> bool:
 
 
 def _check_gemma_available() -> bool:
-    """Check if Gemma server is reachable."""
+    """Check if a Gemma-capable server is reachable."""
     try:
         import httpx
+        endpoints = [GEMMA_ENDPOINT]
+        if GLM_OCR_ENDPOINT not in endpoints:
+            endpoints.append(GLM_OCR_ENDPOINT)
         with httpx.Client(timeout=5) as client:
-            resp = client.get(f"{GEMMA_ENDPOINT}/v1/models")
-            return resp.status_code == 200
+            for endpoint in endpoints:
+                try:
+                    resp = client.get(f"{endpoint}/v1/models")
+                    if resp.status_code == 200:
+                        return True
+                except Exception:
+                    continue
+            return False
     except Exception:
         return False
 
@@ -259,6 +282,7 @@ def analyze(request: dict) -> dict:
             warnings=result.warnings,
             bbox=result.bbox,
             review=None,  # populated by Gemma review below if triggered
+            review_comment=None,
         )
         field_results.append(fr)
 
@@ -266,69 +290,286 @@ def analyze(request: dict) -> dict:
     avg_confidence, _review_required, _low_conf_count = compute_document_confidence(
         field_results, CONFIDENCE_REVIEW_THRESHOLD
     )
-    document_needs_review = avg_confidence < CONFIDENCE_REVIEW_THRESHOLD
+    document_needs_review = any(fr.review_required for fr in field_results)
 
     if document_needs_review and gemma_available:
         logger.info(
             "At least one field is review_required — invoking Gemma whole-PDF review"
         )
 
-        # Build first-pass results for Gemma payload
-        first_pass_results = [
+        all_schema_fields = [
             {
-                "field_name": fr.field_name,
-                "value": fr.value,
-                "confidence": fr.confidence,
-                "review_required": fr.review_required,
-                "warnings": fr.warnings,
+                "field_name": f.get("field_name", ""),
+                "field_label": f.get("field_label", ""),
+                "field_type": f.get("field_type", ""),
+                "page_number": f.get("page_number", 1),
+                "bbox": f.get("bbox", []),
             }
-            for fr in field_results
+            for f in schema.fields
         ]
 
-        # Identify review target fields: those explicitly marked review_required
         review_target_fields = [
             fr.field_name
             for fr in field_results
             if fr.review_required
         ]
+        review_target_set = set(review_target_fields)
+
+        schema_fields = [
+            f for f in all_schema_fields
+            if f.get("field_name") in review_target_set
+        ]
+
+        # Build first-pass results for Gemma payload using only review targets.
+        first_pass_results = [
+            {
+                "field_name": fr.field_name,
+                "field_label": fr.field_label,
+                "field_type": fr.field_type,
+                "value": fr.value,
+                "confidence": fr.confidence,
+                "review_required": fr.review_required,
+                "warnings": fr.warnings,
+                "bbox": fr.bbox,
+            }
+            for fr in field_results
+            if fr.field_name in review_target_set
+        ]
+
+        review_pages, page_selection_warnings = select_relevant_review_pages(
+            all_schema_fields,
+            review_target_fields,
+        )
+        render_result = render_review_pages(validated.file.path, review_pages)
+        field_crop_result = render_review_field_crops(
+            validated.file.path,
+            schema_fields,
+            review_target_fields,
+            inspection.page_sizes,
+        )
 
         # Load manifest for matched-template context
         manifest = registry.get_manifest(match_result.template_id)
 
-        review_result = review_document_extraction(
-            review_mode="matched_template_review",
-            gemma_available=True,
-            template={
-                "template_id": match_result.template_id,
-                "template_family": manifest.get("template_family", ""),
-                "display_name": manifest.get("display_name", ""),
-                "template_version": manifest.get("template_version", ""),
-                "runtime_hints": manifest.get("runtime_hints", {}),
-            },
-            schema_fields=[
-                {
-                    "field_name": f.get("field_name", ""),
-                    "field_label": f.get("field_label", ""),
-                    "field_type": f.get("field_type", ""),
-                    "page_number": f.get("page_number", 1),
-                    "bbox": f.get("bbox", []),
-                }
-                for f in schema.fields
-            ],
-            first_pass_results=first_pass_results,
-            average_document_confidence=avg_confidence,
-            review_target_fields=review_target_fields,
-        )
+        page_images_payload = [
+            {
+                "page_number": page.page_number,
+                "image_url": page.image_url,
+                "mime_type": page.mime_type,
+                "width": page.width,
+                "height": page.height,
+            }
+            for page in render_result.pages
+        ]
+        field_images_payload = [
+            {
+                "field_name": crop.field_name,
+                "field_label": crop.field_label,
+                "page_number": crop.page_number,
+                "image_url": crop.image_url,
+                "mime_type": crop.mime_type,
+                "width": crop.width,
+                "height": crop.height,
+            }
+            for crop in field_crop_result.field_crops
+        ]
 
-        # Merge Gemma review outputs into field results
-        review_map = {r.field_name: r for r in review_result.reviewed_fields}
-        for fr in field_results:
-            if fr.field_name in review_map:
-                rf = review_map[fr.field_name]
-                fr.review = rf.reviewed_value
-                logger.info(
-                    f"Gemma reviewed '{fr.field_name}': '{fr.value}' → '{rf.reviewed_value}'"
+        review_result = None
+        if render_result.error_message is None:
+            review_result = review_document_extraction(
+                review_mode="matched_template_review",
+                gemma_available=True,
+                template={
+                    "template_id": match_result.template_id,
+                    "template_family": manifest.get("template_family", ""),
+                    "display_name": manifest.get("display_name", ""),
+                    "template_version": manifest.get("template_version", ""),
+                    "runtime_hints": manifest.get("runtime_hints", {}),
+                },
+                schema_fields=schema_fields,
+                first_pass_results=first_pass_results,
+                page_images=page_images_payload,
+                field_images=field_images_payload,
+                average_document_confidence=avg_confidence,
+            )
+
+            # Pre-compute once; used for both general-review filter and focused-name
+            # skip logic below.
+            _first_pass_by_name = {r.get("field_name"): r for r in first_pass_results}
+
+            # Exclude First/Last name from general review when their first-pass
+            # confidence is already high (>= 0.75).  The focused-name review
+            # (below) handles those fields at the right crop/prompt combination.
+            # Sending them to the general review risks Gemma reading them worse
+            # than GLM's clean first-pass extraction (e.g. 'Gwanjin' -> 'Guanin').
+            _general_review_targets = [
+                f for f in review_target_fields
+                if f not in ("First_Name_Fill", "Last_Name_Fill", "Name_Employee_Fill")
+                or (_first_pass_by_name.get(f) or {}).get("confidence", 1.0) < 0.75
+            ]
+
+            _ = review_document_extraction(
+                review_mode="matched_template_review",
+                gemma_available=True,
+                template={
+                    "template_id": match_result.template_id,
+                    "template_family": manifest.get("template_family", ""),
+                    "display_name": manifest.get("display_name", ""),
+                    "template_version": manifest.get("template_version", ""),
+                    "runtime_hints": manifest.get("runtime_hints", {}),
+                },
+                schema_fields=schema_fields,
+                first_pass_results=first_pass_results,
+                page_images=page_images_payload,
+                field_images=field_images_payload,
+                average_document_confidence=avg_confidence,
+                review_target_fields=_general_review_targets,
+            )
+
+            # Regression is already avoided for high-confidence name fields by only
+            # sending them to the general review when confidence < 0.75.
+            focused_name_field_names = [
+                name for name in ["First_Name_Fill", "Last_Name_Fill"]
+                if name in review_target_set
+                and (_first_pass_by_name.get(name) or {}).get("confidence", 1.0) < 0.75
+            ]
+            # Initialise general_review_map here so the fallback derivation (below)
+            # can run independently of whether focused name review ran.
+            general_review_map: dict = {
+                item.field_name: item for item in (review_result.reviewed_fields if review_result else [])
+            }
+            if focused_name_field_names:
+                focused_name_set = set(focused_name_field_names)
+                name_schema_fields = [
+                    f for f in schema_fields
+                    if f.get("field_name") in focused_name_set
+                ]
+                name_first_pass_results = [
+                    item for item in first_pass_results
+                    if item.get("field_name") in focused_name_set
+                ]
+                name_page_numbers = {f.get("page_number") for f in name_schema_fields}
+                name_page_images = [
+                    img for img in page_images_payload
+                    if img.get("page_number") in name_page_numbers
+                ]
+                name_field_images = [
+                    img for img in field_images_payload
+                    if img.get("field_name") in focused_name_set
+                ]
+                name_review_result = review_document_extraction(
+                    review_mode="matched_template_review",
+                    gemma_available=True,
+                    template={
+                        "template_id": match_result.template_id,
+                        "template_family": manifest.get("template_family", ""),
+                        "display_name": manifest.get("display_name", ""),
+                        "template_version": manifest.get("template_version", ""),
+                        "runtime_hints": manifest.get("runtime_hints", {}),
+                    },
+                    schema_fields=name_schema_fields,
+                    first_pass_results=name_first_pass_results,
+                    page_images=name_page_images,
+                    field_images=name_field_images,
+                    average_document_confidence=avg_confidence,
+                    review_target_fields=focused_name_field_names,
                 )
+                if name_review_result.reviewed_fields:
+                    general_review_map = {
+                        item.field_name: item for item in (review_result.reviewed_fields if review_result else [])
+                    }
+                    for item in name_review_result.reviewed_fields:
+                        general_review_map[item.field_name] = item
+
+                    first_name_review = general_review_map.get("First_Name_Fill")
+                    last_name_review = general_review_map.get("Last_Name_Fill")
+                    if "Name_Employee_Fill" in review_target_set and first_name_review and last_name_review:
+                        declaration_full_name = f"{last_name_review.reviewed_value} {first_name_review.reviewed_value}".strip()
+                        if declaration_full_name:
+                            from extractors.gemma_client import ReviewedField
+                            general_review_map["Name_Employee_Fill"] = ReviewedField(
+                                field_name="Name_Employee_Fill",
+                                reviewed_value=declaration_full_name,
+                                reviewed_confidence=min(
+                                    value for value in [
+                                        first_name_review.reviewed_confidence,
+                                        last_name_review.reviewed_confidence,
+                                    ] if value is not None
+                                ) if any(
+                                    value is not None for value in [
+                                        first_name_review.reviewed_confidence,
+                                        last_name_review.reviewed_confidence,
+                                    ]
+                                ) else None,
+                                reasoning="Derived from the focused first-name and last-name Gemma review outputs.",
+                            )
+                    if review_result is None:
+                        review_result = name_review_result
+                        review_result.reviewed_fields = list(general_review_map.values())
+                    else:
+                        review_result.reviewed_fields = list(general_review_map.values())
+
+            # Fallback derivation: if Name_Employee_Fill was skipped by first-pass
+            # GLM (empty, confidence=0.0) but Gemma didn't review First/Last name
+            # fields (because their first-pass confidence >= 0.75), derive from
+            # the clean first-pass values directly.  This avoids Gemma crop-read
+            # regressions on name fields that GLM already extracted correctly.
+            if (
+                "Name_Employee_Fill" in review_target_set
+                and general_review_map.get("Name_Employee_Fill") is None
+            ):
+                fp_by_name = {r.field_name: r for r in first_pass_results}
+                fn_first = fp_by_name.get("First_Name_Fill")
+                fn_last = fp_by_name.get("Last_Name_Fill")
+                if fn_first and fn_last:
+                    derived_value = f"{fn_last.get('value', '')} {fn_first.get('value', '')}".strip()
+                    if derived_value:
+                        from extractors.gemma_client import ReviewedField
+                        _derived = ReviewedField(
+                            field_name="Name_Employee_Fill",
+                            reviewed_value=derived_value,
+                            reviewed_confidence=min(
+                                float(fn_first.get('confidence', 0.0)),
+                                float(fn_last.get('confidence', 0.0)),
+                            ),
+                            reasoning="Derived from clean GLM first-pass name extractions (Gemma review skipped — GLM already confident and accurate).",
+                        )
+                        general_review_map["Name_Employee_Fill"] = _derived
+                        if review_result is None:
+                            from extractors.gemma_client import GemmaReviewResult
+                            review_result = GemmaReviewResult(reviewed_fields=[_derived])
+                        else:
+                            review_result.reviewed_fields = list(general_review_map.values())
+
+        review_failure_message = render_result.error_message or (
+            review_result.error_message if review_result else None
+        )
+        combined_review_warnings = page_selection_warnings + field_crop_result.warnings
+        if combined_review_warnings:
+            for fr in field_results:
+                if fr.field_name in review_target_fields:
+                    fr.warnings.extend(combined_review_warnings)
+        if review_failure_message:
+            for fr in field_results:
+                if fr.field_name in review_target_fields and not fr.review_comment:
+                    fr.review_comment = review_failure_message
+                    fr.warnings.append(review_failure_message)
+        elif review_result is not None:
+            review_map = {r.field_name: r for r in review_result.reviewed_fields}
+            for fr in field_results:
+                if fr.field_name in review_map:
+                    rf = review_map[fr.field_name]
+                    fr.review = rf.reviewed_value
+                    fr.review_comment = rf.reasoning
+                    logger.info(
+                        f"Gemma reviewed '{fr.field_name}': '{fr.value}' → '{rf.reviewed_value}'"
+                    )
+    elif document_needs_review:
+        review_unavailable_message = "Gemma whole-document review is unavailable."
+        for fr in field_results:
+            if fr.review_required and not fr.review_comment:
+                fr.review_comment = review_unavailable_message
+                fr.warnings.append(review_unavailable_message)
 
     # ── Stage 6: Compute document-level confidence ───────────────────────────
     avg_confidence, _review_required, low_conf_count = compute_document_confidence(

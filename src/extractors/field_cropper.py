@@ -3,23 +3,16 @@ Field cropper: renders PDF pages to images and crops individual field regions.
 PDF coordinates: origin bottom-left, y increases up.
 Image coordinates: origin top-left, y increases down.
 """
-from PIL import Image
-from pdf2image import convert_from_path
 from typing import Optional
 
-# US Letter: 612 × 792 points
-_PAGE_SIZES = {
-    (612, 792): "letter",
-    (595, 842): "a4",
-}
-
-def _pdf_height(page_width: float, page_height: float) -> float:
-    return page_height
+from PIL import Image
+from pdf2image import convert_from_path
 
 def crop_field_region(
     pdf_path: str,
     page_number: int,
     bbox_pdf: list[float],  # [x0, y0, x1, y1] in PDF points
+    page_size: Optional[tuple[float, float]] = None,
     dpi: int = 300,
 ) -> Optional[Image.Image]:
     """
@@ -43,8 +36,12 @@ def crop_field_region(
         page_img = images[0]
         img_w, img_h = page_img.size
 
-        # PDF dimensions in points (US Letter default)
-        pdf_h = 792
+        # Prefer actual page size from schema/inspection; otherwise derive from rendered image.
+        scale = dpi / 72.0
+        if page_size and len(page_size) == 2:
+            _pdf_w, pdf_h = float(page_size[0]), float(page_size[1])
+        else:
+            pdf_h = img_h / scale
 
         # Convert PDF coords to image coords
         # x: linear (same scale)
@@ -52,7 +49,6 @@ def crop_field_region(
         x0, y0, x1, y1 = bbox_pdf
 
         # Scale factor (DPI / 72 pts per inch)
-        scale = dpi / 72.0
 
         # Image crop box: [left, top, right, bottom] in pixels
         crop_x0 = int(x0 * scale)

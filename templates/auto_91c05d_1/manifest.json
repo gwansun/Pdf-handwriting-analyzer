@@ -1,0 +1,51 @@
+{
+  "template_id": "auto_91c05d_1",
+  "template_family": "\u00e9tat",
+  "template_version": "1.0",
+  "display_name": "Auto-registered template auto_91c05d",
+  "status": "draft",
+  "created_at": "2026-04-25T22:50:39Z",
+  "updated_at": "2026-04-25T22:50:39Z",
+  "fingerprints": {
+    "metadata": {
+      "/Creator": "Designer 6.3",
+      "/ModDate": "D:20241227112506-05'00'",
+      "/CreationDate": "D:20241101085735-04'00'",
+      "/Producer": "Acrobat Distiller 23.0 (Windows)",
+      "/Author": "",
+      "/Title": "\u00c9tat du compte d'\u00e9pargne libre d'imp\u00f4t pour l'achat d'une premi\u00e8re propri\u00e9t\u00e9"
+    },
+    "acroform": {
+      "field_count": 0,
+      "field_names": []
+    },
+    "page_signature": {
+      "page_count": 2,
+      "page_sizes": [
+        {
+          "width": 612.0,
+          "height": 792.0
+        },
+        {
+          "width": 612.0,
+          "height": 792.0
+        }
+      ]
+    },
+    "anchor_text": {
+      "phrases": []
+    },
+    "visual_anchor": {}
+  },
+  "schema_ref": {
+    "schema_path": "templates/auto_91c05d_1/schema.json",
+    "blank_pdf_path": "templates/auto_91c05d_1/auto_91c05d_1.pdf"
+  },
+  "runtime_hints": {
+    "default_input_mode": "mixed",
+    "primary_language": "en",
+    "alignment_mode": "strict",
+    "unknown_field_policy": "review",
+    "preferred_extractors": []
+  }
+}

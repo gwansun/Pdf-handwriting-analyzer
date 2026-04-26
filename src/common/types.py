@@ -64,6 +64,7 @@ class FieldResult:
     bbox: list = field(default_factory=list)  # [x0, y0, x1, y1]
     # Gemma review output — attached separately; never overwrites value/confidence
     review: Optional[str] = None
+    review_comment: Optional[str] = None
 
 
 @dataclass

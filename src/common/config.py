@@ -3,13 +3,40 @@
 # All MLX model endpoints and local runtime paths are defined here.
 # These should match the SETUP.md specifications.
 
+import os
+import sys
 from pathlib import Path
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
-TEMPLATES_DIR = PROJECT_ROOT / "templates"
-CACHE_DIR = PROJECT_ROOT / ".cache"
+def _default_project_root() -> Path:
+    """Resolve a stable writable root for source and frozen builds."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).parent.parent.parent.resolve()
+
+
+def _bundled_asset_root() -> Path:
+    """Resolve the location of bundled read-only assets in frozen builds."""
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass).resolve()
+    return _default_project_root()
+
+
+def _default_templates_dir() -> Path:
+    """Templates live under the source tree or the PyInstaller bundle asset root."""
+    if getattr(sys, "frozen", False):
+        return _bundled_asset_root() / "templates"
+    return _default_project_root() / "templates"
+
+
+PROJECT_ROOT = Path(os.getenv("PDF_ANALYZER_PROJECT_ROOT", _default_project_root())).resolve()
+TEMPLATES_DIR = Path(os.getenv("PDF_ANALYZER_TEMPLATES_DIR", _default_templates_dir())).resolve()
+CACHE_DIR = Path(os.getenv("PDF_ANALYZER_CACHE_DIR", PROJECT_ROOT / ".cache")).resolve()
+REVIEW_PAGE_IMAGE_DIR = Path(
+    os.getenv("PDF_ANALYZER_REVIEW_PAGE_IMAGE_DIR", PROJECT_ROOT / "logs" / "review_pages")
+).resolve()
 
 # ─── MLX Model Endpoints ───────────────────────────────────────────────────────
 

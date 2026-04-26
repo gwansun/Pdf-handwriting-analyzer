@@ -12,6 +12,7 @@ from common.types import AnalyzerResponse, ErrorDetail, Summary
 from common.response_builder import build_unknown_filled_review_response, response_to_dict
 from extractors.provisional_router import extract_provisional_fields, estimate_overall_confidence
 from extractors.gemma_client import review_document_extraction
+from extractors.gemma_review_pages import render_review_pages
 from common.template_registry import TemplateRegistry
 
 logger = logging.getLogger("unknown_fallback")
@@ -104,7 +105,7 @@ def extract_unknown_filled_pdf(
         ]
         # Convert to lightweight FieldResult for confidence computation
         provisional_field_results = [_to_field_result(r) for r in provisional_raw]
-        overall_confidence = estimate_overall_confidence(provisional_raw, inspection)
+        overall_confidence = estimate_overall_confidence(provisional_raw)
         field_count = len(provisional_raw)
     except Exception as exc:
         logger.warning("Provisional extraction failed for %s: %s", pdf_path, exc)
@@ -113,7 +114,7 @@ def extract_unknown_filled_pdf(
         provisional_results = []
         provisional_field_results = []
 
-    # ── Fallback Gemma review ─────────────────────────────────────────────────
+    # ── Fallback Gemma review with page images ───────────────────────────────
     if provisional_field_results and gemma_available:
         from confidence.scorer import compute_document_confidence
         avg_conf, _, _ = compute_document_confidence(
@@ -129,57 +130,71 @@ def extract_unknown_filled_pdf(
                 for r in provisional_field_results
                 if r.review_required
             ]
-            review_result = review_document_extraction(
-                review_mode="fallback_review",
-                gemma_available=True,
-                document={
-                    "page_count": inspection.page_count,
-                    "metadata": {},
-                },
-                inspection={
-                    "is_born_digital": inspection.is_born_digital,
-                    "is_scanned": inspection.is_scanned,
-                    "is_hybrid": inspection.is_hybrid,
-                    "acroform_field_names": inspection.acroform_field_names or [],
-                },
-                provisional_results=provisional_results,
-                average_document_confidence=avg_conf,
-                review_target_fields=review_target_fields,
-                warnings=["Template metadata unavailable — fallback review mode"],
-            )
-            # Attach Gemma review to provisional results for response,
-            # preserving first-pass value and confidence.
-            review_map = {r.field_name: r for r in review_result.reviewed_fields}
-            provisional_field_results = []
-            for r in provisional_raw:
-                review_value = None
-                warnings = list(r.warnings)
-                if r.field_name in review_map:
-                    rf = review_map[r.field_name]
-                    review_value = rf.reviewed_value
-                    warnings.append(
-                        f"Gemma fallback review: '{rf.reasoning}'" if rf.reasoning else "Gemma fallback review applied"
-                    )
-                    logger.info(
-                        f"Gemma fallback reviewed '{r.field_name}': '{r.value}' → '{rf.reviewed_value}'"
-                    )
-                provisional_field_results.append(
-                    FieldResult(
-                        field_name=r.field_name,
-                        field_label=r.field_name,
-                        field_type=r.field_type,
-                        value=r.value,
-                        confidence=r.confidence,
-                        validation_status="uncertain",
-                        review_required=r.confidence < CONFIDENCE_REVIEW_THRESHOLD,
-                        bbox=r.bbox,
-                        warnings=warnings,
-                        review=review_value,
-                    )
+
+            # Render all pages (capped) for fallback — no schema so no page selection
+            page_numbers = list(range(1, min(inspection.page_count, 5) + 1))
+            render_result = render_review_pages(pdf_path, page_numbers)
+
+            review_result = None
+            if render_result.error_message is None:
+                review_result = review_document_extraction(
+                    review_mode="fallback_review",
+                    gemma_available=True,
+                    document={
+                        "page_count": inspection.page_count,
+                        "metadata": {},
+                    },
+                    inspection={
+                        "is_born_digital": inspection.is_born_digital,
+                        "is_scanned": inspection.is_scanned,
+                        "is_hybrid": inspection.is_hybrid,
+                        "acroform_field_names": inspection.acroform_field_names or [],
+                    },
+                    provisional_results=provisional_results,
+                    page_images=[
+                        {
+                            "page_number": page.page_number,
+                            "image_url": page.image_url,
+                            "mime_type": page.mime_type,
+                            "width": page.width,
+                            "height": page.height,
+                        }
+                        for page in render_result.pages
+                    ],
+                    average_document_confidence=avg_conf,
+                    review_target_fields=review_target_fields,
+                    warnings=["Template metadata unavailable — fallback review mode"],
                 )
-            overall_confidence, _, _ = compute_document_confidence(
-                provisional_field_results, CONFIDENCE_REVIEW_THRESHOLD
+
+            review_failure_message = render_result.error_message or (
+                review_result.error_message if review_result else None
             )
+            if review_failure_message:
+                for r in provisional_field_results:
+                    if r.review_required and not r.review_comment:
+                        r.review_comment = review_failure_message
+                        r.warnings.append(review_failure_message)
+            elif review_result is not None:
+                review_map = {rf.field_name: rf for rf in review_result.reviewed_fields}
+                for r in provisional_field_results:
+                    if r.field_name in review_map:
+                        rf = review_map[r.field_name]
+                        r.review = rf.reviewed_value
+                        r.warnings.append(
+                            f"Gemma fallback review: '{rf.reasoning}'" if rf.reasoning else "Gemma fallback review applied"
+                        )
+                        logger.info(
+                            f"Gemma fallback reviewed '{r.field_name}': '{r.value}' → '{rf.reviewed_value}'"
+                        )
+                overall_confidence, _, _ = compute_document_confidence(
+                    provisional_field_results, CONFIDENCE_REVIEW_THRESHOLD
+                )
+    elif provisional_field_results:
+        review_unavailable_message = "Gemma whole-document review is unavailable."
+        for r in provisional_field_results:
+            if r.review_required and not r.review_comment:
+                r.review_comment = review_unavailable_message
+                r.warnings.append(review_unavailable_message)
     # ── End Fallback Gemma review ────────────────────────────────────────────
 
     if not provisional_field_results:
@@ -192,12 +207,14 @@ def extract_unknown_filled_pdf(
         overall_confidence=overall_confidence,
         field_count=field_count,
         fields=provisional_field_results,
-        warnings=[{
-            "code": "UNKNOWN_TEMPLATE",
-            "message": (
-                "No registered template matches this document. "
-                "Provisional extraction performed; results require manual review."
-            ),
-        }],
+        warnings=[
+            {
+                "code": "UNKNOWN_TEMPLATE",
+                "message": (
+                    "No registered template matches this document. "
+                    "Provisional extraction performed; results require manual review."
+                ),
+            },
+        ],
     )
     return response_to_dict(response)

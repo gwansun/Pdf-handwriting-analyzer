@@ -53,12 +53,21 @@ def extract_handwritten_text(image: Image.Image, field_label: str = "") -> tuple
             f"This image shows the '{field_label}' field on a government form. "
             f"Read ONLY the handwritten text written in this specific field box. "
             f"Do NOT read printed field labels or text from other fields or rows. "
-            f"Output exactly what is written here, or (blank) if empty."
+            f"Preserve the handwritten format exactly as written. "
+            f"Do NOT normalize dates, numbers, abbreviations, or capitalization. "
+            f"If multiple lines are present, return them in reading order separated by a comma and space. "
+            f"Cursive is acceptable — read carefully and do not guess missing characters. "
+            f"Output exactly the handwritten text, or (no entry) if the field is blank."
         )
     else:
         instruction = (
             "Read the handwritten text in this image. "
-            "Output ONLY the handwritten text, or (blank) if empty."
+            "Output ONLY the handwritten text. "
+            "Preserve the handwritten format exactly as written. "
+            "Do NOT normalize dates, numbers, abbreviations, or capitalization. "
+            "If multiple lines are present, return them in reading order separated by a comma and space. "
+            "Cursive is acceptable — read carefully and do not guess missing characters. "
+            "Output (no entry) if the field is blank."
         )
     user_content.append({"type": "text", "text": instruction})
     user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}})
@@ -102,7 +111,7 @@ def extract_handwritten_text(image: Image.Image, field_label: str = "") -> tuple
             lower = text.lower()
             # Match exact blank indicators, avoiding partial-word false positives
             blank_phrases = [
-                "(blank)", "(empty)", "no text", "no handwritten",
+                "(no entry)", "(empty)", "no text", "no handwritten",
                 "nothing written", "unreadable", "cannot read", "illegible",
             ]
             if any(phrase in lower for phrase in blank_phrases):
